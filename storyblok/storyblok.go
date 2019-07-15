@@ -30,21 +30,22 @@ type Story struct {
 }
 
 type Recipe struct {
-	UID         string `json:"_uid"`
-	Cost        string `json:"cost"`
-	Prep        string `json:"prep"`
-	Extra       string `json:"extra"`
-	Image       string `json:"image"`
-	Likes       string `json:"likes"`
-	Steps       []Step `json:"steps"`
-	Title       string `json:"title"`
-	Cooking     string `json:"cooking"`
-	Summary     string `json:"summary"`
-	Servings    string `json:"servings"`
-	Component   string `json:"component"`
-	Conclusion  string `json:"conclusion"`
-	Difficulty  string `json:"difficulty"`
-	Description string `json:"description"`
+	UID         string      `json:"_uid"`
+	Cost        string      `json:"cost"`
+	Prep        string      `json:"prep"`
+	Extra       string      `json:"extra"`
+	Image       string      `json:"image"`
+	Likes       interface{} `json:"likes"`
+	Steps       []Step      `json:"steps"`
+	Title       string      `json:"title"`
+	Cooking     string      `json:"cooking"`
+	Summary     string      `json:"summary"`
+	Servings    string      `json:"servings"`
+	Component   string      `json:"component"`
+	Conclusion  string      `json:"conclusion"`
+	Difficulty  string      `json:"difficulty"`
+	Description string      `json:"description"`
+	Translated  bool        `json:"translated"`
 	Ingredients struct {
 		UID         string       `json:"_uid"`
 		Plugin      string       `json:"plugin"`
@@ -66,15 +67,18 @@ type Step struct {
 	Thumbnail string `json:"thumbnail"`
 }
 
-func NewStories() (*Story, error) {
-	req, err := http.NewRequest("GET", "https://api.storyblok.com/v1/cdn/stories/recipes/summer-cheesecake", nil)
+func NewStories() ([]*Story, error) {
+	req, err := http.NewRequest("GET", "https://api.storyblok.com/v1/cdn/stories", nil)
 	if err != nil {
 		return nil, err
 	}
 
 	q := req.URL.Query()
+	q.Add("starts_with", "recipes")
+	q.Add("filter_query[translated][in]", "true")
 	q.Add("token", "BWZ2r0aQR0LCU9PXMtE06Qtt")
 	req.URL.RawQuery = q.Encode()
+
 	req.Header.Add("Content-Type", "applcation/json")
 	req.Header.Add("Accept", "applcation/json")
 
@@ -87,7 +91,7 @@ func NewStories() (*Story, error) {
 	defer res.Body.Close()
 
 	s := struct {
-		Story Story `json:"story"`
+		Stories []*Story `json:"stories"`
 	}{}
 
 	err = json.NewDecoder(res.Body).Decode(&s)
@@ -95,5 +99,5 @@ func NewStories() (*Story, error) {
 		return nil, err
 	}
 
-	return &s.Story, nil
+	return s.Stories, nil
 }

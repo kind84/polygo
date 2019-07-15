@@ -16,10 +16,6 @@ type DeepElement struct {
 	Nil1        struct{ Pippo string }
 	Nil2        struct{ Pippo string }
 	Number      int
-	Nil3        struct{ Pippo string }
-	Nil4        struct{ Pippo string }
-	Nil5        struct{ Pippo string }
-	Deepest     [][][]string
 }
 
 // func (e *Element) UnmarshalJSON(bs []byte) error {
@@ -40,7 +36,7 @@ func Translate(text string) (string, error) {
 	q := req.URL.Query()
 	q.Add("client", "gtx")
 	q.Add("sl", "it")
-	q.Add("dl", "en")
+	q.Add("tl", "en")
 	q.Add("dt", "t")
 	q.Add("q", text)
 	req.URL.RawQuery = q.Encode()
