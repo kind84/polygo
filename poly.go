@@ -7,6 +7,7 @@ import (
 
 	"github.com/julienschmidt/httprouter"
 
+	"github.com/kind84/polygo/storyblok"
 	"github.com/kind84/polygo/translator"
 )
 
@@ -58,10 +59,17 @@ func translate(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
 		log.Fatalln(err)
 	}
 
+	story, err := storyblok.NewStories()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
 	resp := struct {
-		Translation string `json:"translation"`
+		Translation string           `json:"translation"`
+		Story       *storyblok.Story `json:"story"`
 	}{
 		Translation: translation,
+		Story:       story,
 	}
 
 	json.NewEncoder(w).Encode(resp)
