@@ -4,7 +4,19 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
+	"reflect"
+
+	"github.com/kind84/polygo/storyblok"
 )
+
+// Tbt recipe fields that needs translation.
+// const Tbt = map[string]struct{}{
+// 	"Extra": struct{}{},
+// 	"Title": struct{}{},
+// 	"Summary": struct{}{},
+// 	"Conclusion": struct{}{},
+// 	"Description": struct{}{},
+// }
 
 type Element struct {
 	Slice []DeepElement
@@ -18,16 +30,29 @@ type DeepElement struct {
 	Number      int
 }
 
-// func (e *Element) UnmarshalJSON(bs []byte) error {
-// 	arr := []interface{}{}
-// 	json.Unmarshal(bs, &arr)
-// 	e.Slice = arr[0].([]interface{})
-// 	e.Nil = arr[1].(struct{ Pippo string })
-// 	e.SourceLang = arr[2].(string)
-// 	return nil
-// }
+func TranslateRecipe(r *storyblok.Recipe) error {
+	fields := map[string]string{
+		"Extra":       r.Extra,
+		"Title":       r.Title,
+		"Summary":     r.Summary,
+		"Conclusion":  r.Conclusion,
+		"Description": r.Description,
+	}
 
-func Translate(text string) (string, error) {
+	val := reflect.ValueOf(r).Elem()
+	for k, v := range fields {
+		if v != "" {
+			t, err := translate(v)
+			if err != nil {
+				return err
+			}
+			val.FieldByName(k).SetString(t)
+		}
+	}
+	return nil
+}
+
+func translate(text string) (string, error) {
 	req, err := http.NewRequest("GET", "https://translate.googleapis.com/translate_a/single", nil)
 	if err != nil {
 		return "", err

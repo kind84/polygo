@@ -59,17 +59,17 @@ func translate(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
 		log.Fatalln(err)
 	}
 
-	translation, err := translator.Translate(txt.Text)
-	if err != nil {
-		log.Fatalln(err)
+	for _, story := range stories {
+		err := translator.TranslateRecipe(&story.Content)
+		if err != nil {
+			log.Fatalln(err)
+		}
 	}
 
 	resp := struct {
-		Translation string             `json:"translation"`
-		Stories     []*storyblok.Story `json:"stories"`
+		Stories []*storyblok.Story `json:"stories"`
 	}{
-		Translation: translation,
-		Stories:     stories,
+		Stories: stories,
 	}
 
 	json.NewEncoder(w).Encode(resp)
