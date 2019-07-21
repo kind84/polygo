@@ -2,21 +2,27 @@ package translator
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"log"
 	"net/http"
 	"reflect"
 
 	"github.com/kind84/polygo/storyblok"
 )
 
-// Tbt recipe fields that needs translation.
-// const Tbt = map[string]struct{}{
-// 	"Extra": struct{}{},
-// 	"Title": struct{}{},
-// 	"Summary": struct{}{},
-// 	"Conclusion": struct{}{},
-// 	"Description": struct{}{},
-// }
+type TRequest struct {
+	field      string
+	sourceText string
+}
+
+type TResponse struct {
+	field       string
+	translation string
+}
+
+type Message struct {
+	Story       storyblok.Story
+	Translation chan (storyblok.Story)
+}
 
 type Element struct {
 	Slice []DeepElement
@@ -30,32 +36,66 @@ type DeepElement struct {
 	Number      int
 }
 
-func TranslateRecipe(r *storyblok.Recipe) error {
+func TranslateRecipe(m Message) {
 	fields := map[string]string{
-		"Extra":       r.Extra,
-		"Title":       r.Title,
-		"Summary":     r.Summary,
-		"Conclusion":  r.Conclusion,
-		"Description": r.Description,
+		"Extra":       m.Story.Content.Extra,
+		"Title":       m.Story.Content.Title,
+		"Summary":     m.Story.Content.Summary,
+		"Conclusion":  m.Story.Content.Conclusion,
+		"Description": m.Story.Content.Description,
 	}
 
-	val := reflect.ValueOf(r).Elem()
-	for k, v := range fields {
-		if v != "" {
-			t, err := translate(v)
-			if err != nil {
-				return err
-			}
-			val.FieldByName(k).SetString(t)
-		}
+	// copy recipe object and do reflection on the copy
+	s := m.Story
+
+	resChan := make(chan TResponse)
+	defer close(resChan)
+
+	go translateFields(fields, resChan)
+
+	// for _, i := range s.Content.Ingredients.Ingredients {
+	// 	igFields := map[string]string{
+	// 		"Quantity": i.Quantity,
+	// 		"Unit":     i.Unit,
+	// 		"Name":     i.Name,
+	// 	}
+
+	// 	go translateFields(igFields, resChan)
+	// }
+
+	val := reflect.ValueOf(&s.Content).Elem()
+
+	for range fields {
+		t := <-resChan
+		val.FieldByName(t.field).SetString(t.translation)
 	}
-	return nil
+
+	// send translated recipe over the channel
+	m.Translation <- s
 }
 
-func translate(text string) (string, error) {
+func translateFields(fields map[string]string, resChan chan (TResponse)) {
+	for k, v := range fields {
+		if v != "" {
+			tReq := TRequest{
+				field:      k,
+				sourceText: v,
+			}
+			// context ??
+			go func() { resChan <- translate(tReq) }()
+		} else {
+			resChan <- TResponse{
+				field:       k,
+				translation: "",
+			}
+		}
+	}
+}
+
+func translate(tReq TRequest) TResponse {
 	req, err := http.NewRequest("GET", "https://translate.googleapis.com/translate_a/single", nil)
 	if err != nil {
-		return "", err
+		log.Fatalln(err)
 	}
 
 	q := req.URL.Query()
@@ -63,29 +103,27 @@ func translate(text string) (string, error) {
 	q.Add("sl", "it")
 	q.Add("tl", "en")
 	q.Add("dt", "t")
-	q.Add("q", text)
+	q.Add("q", tReq.sourceText)
 	req.URL.RawQuery = q.Encode()
 
 	client := &http.Client{}
 
 	r, err := client.Do(req)
 	if err != nil {
-		return "", err
+		log.Fatalln(err)
 	}
 	defer r.Body.Close()
 
 	var resp []interface{}
-	body, err := ioutil.ReadAll(r.Body)
+	err = json.NewDecoder(r.Body).Decode((&resp))
 	if err != nil {
-		return "", err
+		log.Fatalln(err)
 	}
 
-	err = json.Unmarshal(body, &resp)
-	if err != nil {
-		return "", err
+	return TResponse{
+		field:       tReq.field,
+		translation: resp[0].([]interface{})[0].([]interface{})[0].(string),
 	}
-
-	return resp[0].([]interface{})[0].([]interface{})[0].(string), nil
 	/*
 		Google response has this structure:
 		[

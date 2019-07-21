@@ -59,17 +59,27 @@ func translate(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
 		log.Fatalln(err)
 	}
 
-	for _, story := range stories {
-		err := translator.TranslateRecipe(&story.Content)
-		if err != nil {
-			log.Fatalln(err)
-		}
+	var resp struct {
+		Stories []storyblok.Story `json:"stories"`
 	}
 
-	resp := struct {
-		Stories []*storyblok.Story `json:"stories"`
-	}{
-		Stories: stories,
+	tChan := make(chan storyblok.Story)
+	defer close(tChan)
+
+	for _, story := range stories {
+		// Message with recipe and translation channel
+		msg := translator.Message{
+			Story:       story,
+			Translation: tChan,
+		}
+		// goroutine or return a channel?
+		// context ??
+		go translator.TranslateRecipe(msg) // pass the Message
+	}
+
+	for range stories {
+		t := <-tChan
+		resp.Stories = append(resp.Stories, t)
 	}
 
 	json.NewEncoder(w).Encode(resp)

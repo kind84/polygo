@@ -67,7 +67,7 @@ type Step struct {
 	Thumbnail string `json:"thumbnail"`
 }
 
-func NewStories() ([]*Story, error) {
+func NewStories() ([]Story, error) {
 	req, err := http.NewRequest("GET", "https://api.storyblok.com/v1/cdn/stories", nil)
 	if err != nil {
 		return nil, err
@@ -91,7 +91,7 @@ func NewStories() ([]*Story, error) {
 	defer res.Body.Close()
 
 	s := struct {
-		Stories []*Story `json:"stories"`
+		Stories []Story `json:"stories"`
 	}{}
 
 	err = json.NewDecoder(res.Body).Decode(&s)
