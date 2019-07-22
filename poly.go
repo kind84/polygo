@@ -74,7 +74,7 @@ func translate(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
 		}
 		// goroutine or return a channel?
 		// context ??
-		go translator.TranslateRecipe(msg) // pass the Message
+		go translator.TranslateRecipe(msg)
 	}
 
 	for range stories {

@@ -10,11 +10,13 @@ import (
 )
 
 type TRequest struct {
+	ID         string
 	field      string
 	sourceText string
 }
 
 type TResponse struct {
+	ID          string
 	field       string
 	translation string
 }
@@ -36,48 +38,77 @@ type DeepElement struct {
 	Number      int
 }
 
+type Fields struct {
+	ID     string
+	Fields map[string]string
+}
+
 func TranslateRecipe(m Message) {
-	fields := map[string]string{
-		"Extra":       m.Story.Content.Extra,
-		"Title":       m.Story.Content.Title,
-		"Summary":     m.Story.Content.Summary,
-		"Conclusion":  m.Story.Content.Conclusion,
-		"Description": m.Story.Content.Description,
+	fields := Fields{
+		ID: string(m.Story.ID),
+		Fields: map[string]string{
+			"Extra":       m.Story.Content.Extra,
+			"Title":       m.Story.Content.Title,
+			"Summary":     m.Story.Content.Summary,
+			"Conclusion":  m.Story.Content.Conclusion,
+			"Description": m.Story.Content.Description,
+		},
 	}
 
 	// copy recipe object and do reflection on the copy
 	s := m.Story
 
 	resChan := make(chan TResponse)
+	stpChan := make(chan TResponse)
 	defer close(resChan)
+	defer close(stpChan)
 
 	go translateFields(fields, resChan)
 
-	// for _, i := range s.Content.Ingredients.Ingredients {
-	// 	igFields := map[string]string{
-	// 		"Quantity": i.Quantity,
-	// 		"Unit":     i.Unit,
-	// 		"Name":     i.Name,
-	// 	}
+	fm := make(map[string]map[string]string, len(s.Content.Steps))
+	for _, stp := range s.Content.Steps {
+		stpFields := Fields{
+			ID: stp.UID,
+			Fields: map[string]string{
+				"Title":   stp.Title,
+				"Content": stp.Content,
+			},
+		}
+		fm[stp.UID] = map[string]string{
+			"Title":   "",
+			"Content": "",
+		}
 
-	// 	go translateFields(igFields, resChan)
-	// }
+		go translateFields(stpFields, stpChan)
+	}
 
 	val := reflect.ValueOf(&s.Content).Elem()
 
-	for range fields {
-		t := <-resChan
-		val.FieldByName(t.field).SetString(t.translation)
+	for i := 0; i < len(fields.Fields)+(len(s.Content.Steps)*2); i++ {
+		select {
+		case t := <-resChan:
+			val.FieldByName(t.field).SetString(t.translation)
+		case stpT := <-stpChan:
+			log.Printf("received translation %s for field %s of step ID %s\n", stpT.translation, stpT.field, stpT.ID)
+			fm[stpT.ID][stpT.field] = stpT.translation
+		}
+	}
+
+	for i := 0; i < len(s.Content.Steps); i++ {
+		sm := fm[s.Content.Steps[i].UID]
+		s.Content.Steps[i].Title = sm["Title"]
+		s.Content.Steps[i].Content = sm["Content"]
 	}
 
 	// send translated recipe over the channel
 	m.Translation <- s
 }
 
-func translateFields(fields map[string]string, resChan chan (TResponse)) {
-	for k, v := range fields {
+func translateFields(f Fields, resChan chan (TResponse)) {
+	for k, v := range f.Fields {
 		if v != "" {
 			tReq := TRequest{
+				ID:         f.ID,
 				field:      k,
 				sourceText: v,
 			}
@@ -85,6 +116,7 @@ func translateFields(fields map[string]string, resChan chan (TResponse)) {
 			go func() { resChan <- translate(tReq) }()
 		} else {
 			resChan <- TResponse{
+				ID:          f.ID,
 				field:       k,
 				translation: "",
 			}
@@ -93,6 +125,7 @@ func translateFields(fields map[string]string, resChan chan (TResponse)) {
 }
 
 func translate(tReq TRequest) TResponse {
+	log.Printf("translating %s\n", tReq.sourceText)
 	req, err := http.NewRequest("GET", "https://translate.googleapis.com/translate_a/single", nil)
 	if err != nil {
 		log.Fatalln(err)
@@ -100,8 +133,8 @@ func translate(tReq TRequest) TResponse {
 
 	q := req.URL.Query()
 	q.Add("client", "gtx")
-	q.Add("sl", "it")
-	q.Add("tl", "en")
+	q.Add("sl", "en")
+	q.Add("tl", "it")
 	q.Add("dt", "t")
 	q.Add("q", tReq.sourceText)
 	req.URL.RawQuery = q.Encode()
@@ -120,7 +153,9 @@ func translate(tReq TRequest) TResponse {
 		log.Fatalln(err)
 	}
 
+	log.Printf("translation: %s\n", resp[0].([]interface{})[0].([]interface{})[0].(string))
 	return TResponse{
+		ID:          tReq.ID,
 		field:       tReq.field,
 		translation: resp[0].([]interface{})[0].([]interface{})[0].(string),
 	}
