@@ -89,7 +89,6 @@ func TranslateRecipe(m Message) {
 		case t := <-resChan:
 			val.FieldByName(t.field).SetString(t.translation)
 		case stpT := <-stpChan:
-			log.Printf("received translation %s for field %s of step ID %s\n", stpT.translation, stpT.field, stpT.ID)
 			fm[stpT.ID][stpT.field] = stpT.translation
 		}
 	}
@@ -125,7 +124,6 @@ func translateFields(f Fields, resChan chan (TResponse)) {
 }
 
 func translate(tReq TRequest) TResponse {
-	log.Printf("translating %s\n", tReq.sourceText)
 	req, err := http.NewRequest("GET", "https://translate.googleapis.com/translate_a/single", nil)
 	if err != nil {
 		log.Fatalln(err)
@@ -153,7 +151,6 @@ func translate(tReq TRequest) TResponse {
 		log.Fatalln(err)
 	}
 
-	log.Printf("translation: %s\n", resp[0].([]interface{})[0].([]interface{})[0].(string))
 	return TResponse{
 		ID:          tReq.ID,
 		field:       tReq.field,
