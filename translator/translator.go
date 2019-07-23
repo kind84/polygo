@@ -1,13 +1,18 @@
 package translator
 
 import (
-	"encoding/json"
+	"context"
 	"log"
-	"net/http"
 	"reflect"
+
+	"cloud.google.com/go/translate"
+	"golang.org/x/text/language"
+	"google.golang.org/api/option"
 
 	"github.com/kind84/polygo/storyblok"
 )
+
+const apiKey = "YOUR_TRANSLATE_API_KEY"
 
 type TRequest struct {
 	ID         string
@@ -43,7 +48,7 @@ type Fields struct {
 	Fields map[string]string
 }
 
-func TranslateRecipe(m Message) {
+func TranslateRecipe(ctx context.Context, m Message) {
 	fields := Fields{
 		ID: string(m.Story.ID),
 		Fields: map[string]string{
@@ -63,7 +68,7 @@ func TranslateRecipe(m Message) {
 	defer close(resChan)
 	defer close(stpChan)
 
-	go translateFields(fields, resChan)
+	go translateFields(ctx, fields, resChan)
 
 	fm := make(map[string]map[string]string, len(s.Content.Steps))
 	for _, stp := range s.Content.Steps {
@@ -79,7 +84,7 @@ func TranslateRecipe(m Message) {
 			"Content": "",
 		}
 
-		go translateFields(stpFields, stpChan)
+		go translateFields(ctx, stpFields, stpChan)
 	}
 
 	val := reflect.ValueOf(&s.Content).Elem()
@@ -103,7 +108,7 @@ func TranslateRecipe(m Message) {
 	m.Translation <- s
 }
 
-func translateFields(f Fields, resChan chan (TResponse)) {
+func translateFields(ctx context.Context, f Fields, resChan chan (TResponse)) {
 	for k, v := range f.Fields {
 		if v != "" {
 			tReq := TRequest{
@@ -111,8 +116,9 @@ func translateFields(f Fields, resChan chan (TResponse)) {
 				field:      k,
 				sourceText: v,
 			}
-			// context ??
-			go func() { resChan <- translate(tReq) }()
+
+			go func() { resChan <- translateText(ctx, tReq) }()
+
 		} else {
 			resChan <- TResponse{
 				ID:          f.ID,
@@ -123,30 +129,19 @@ func translateFields(f Fields, resChan chan (TResponse)) {
 	}
 }
 
-func translate(tReq TRequest) TResponse {
-	req, err := http.NewRequest("GET", "https://translate.googleapis.com/translate_a/single", nil)
+func translateText(ctx context.Context, tReq TRequest) TResponse {
+	client, err := translate.NewClient(ctx, option.WithAPIKey(apiKey))
 	if err != nil {
 		log.Fatalln(err)
 	}
+	defer client.Close()
 
-	q := req.URL.Query()
-	q.Add("client", "gtx")
-	q.Add("sl", "en")
-	q.Add("tl", "it")
-	q.Add("dt", "t")
-	q.Add("q", tReq.sourceText)
-	req.URL.RawQuery = q.Encode()
+	// lang, err := language.Parse(targetLang)
+	// if err != nil {
+	// 	return tResp, err
+	// }
 
-	client := &http.Client{}
-
-	r, err := client.Do(req)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	defer r.Body.Close()
-
-	var resp []interface{}
-	err = json.NewDecoder(r.Body).Decode((&resp))
+	resp, err := client.Translate(ctx, []string{tReq.sourceText}, language.AmericanEnglish, nil)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -154,33 +149,41 @@ func translate(tReq TRequest) TResponse {
 	return TResponse{
 		ID:          tReq.ID,
 		field:       tReq.field,
-		translation: resp[0].([]interface{})[0].([]interface{})[0].(string),
+		translation: resp[0].Text,
 	}
-	/*
-		Google response has this structure:
-		[
-			[
-				[
-					"encodeURI (I like cycling)",  <--- TRANSLATION
-					"encodeURI(mi piace andare in bici)",
-					null,
-					null,
-					3,
-					null,
-					null,
-					null,
-					[
-						[
-							[
-								"2b7b3f17283598f7d49f0be4a58102b7",
-								"it_en_2018q4.md"
-							]
-						]
-					]
-				]
-			],
-			null,
-			"it"
-		]
-	*/
 }
+
+// func translateText(ctx context.Context, tReq TRequest) TResponse {
+// req, err := http.NewRequest("GET", "https://translate.googleapis.com/translate_a/single", nil)
+// if err != nil {
+// 	log.Fatalln(err)
+// }
+
+// q := req.URL.Query()
+// q.Add("client", "gtx")
+// q.Add("sl", "en")
+// q.Add("tl", "it")
+// q.Add("dt", "t")
+// q.Add("q", tReq.sourceText)
+// req.URL.RawQuery = q.Encode()
+
+// client := &http.Client{}
+
+// r, err := client.Do(req)
+// if err != nil {
+// 	log.Fatalln(err)
+// }
+// defer r.Body.Close()
+
+// var resp []interface{}
+// err = json.NewDecoder(r.Body).Decode((&resp))
+// if err != nil {
+// 	log.Fatalln(err)
+// }
+
+// return TResponse{
+// 	ID:          tReq.ID,
+// 	field:       tReq.field,
+// 	translation: resp[0].([]interface{})[0].([]interface{})[0].(string),
+// }
+// }

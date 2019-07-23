@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
 
 	"github.com/julienschmidt/httprouter"
+	"github.com/spf13/viper"
 
 	"github.com/kind84/polygo/storyblok"
 	"github.com/kind84/polygo/translator"
@@ -23,6 +25,19 @@ type task struct {
 }
 
 // ---
+
+func init() {
+	log.Println("Setting up configuration...")
+	viper.SetConfigName("config")
+	viper.AddConfigPath(".")
+	viper.SetEnvPrefix("polygo")
+	viper.AutomaticEnv()
+
+	err := viper.ReadInConfig()
+	if err != nil {
+		log.Fatalf("Fatal error config file: %s", err)
+	}
+}
 
 func main() {
 	mux := httprouter.New()
@@ -44,6 +59,7 @@ func translate(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
 	// if err != nil {
 	// 	log.Println(err)
 	// }
+	ctx := context.Background()
 
 	var txt struct {
 		Text string `json:"text"`
@@ -54,7 +70,9 @@ func translate(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
 		log.Fatalln(err)
 	}
 
-	stories, err := storyblok.NewStories()
+	sbToken := viper.GetString("storyblok.token")
+	sbClient := storyblok.NewClient(sbToken)
+	stories, err := sbClient.NewStories()
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -72,9 +90,8 @@ func translate(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
 			Story:       story,
 			Translation: tChan,
 		}
-		// goroutine or return a channel?
-		// context ??
-		go translator.TranslateRecipe(msg)
+
+		go translator.TranslateRecipe(ctx, msg)
 	}
 
 	for range stories {

@@ -67,7 +67,15 @@ type Step struct {
 	Thumbnail string `json:"thumbnail"`
 }
 
-func NewStories() ([]Story, error) {
+type Client struct {
+	token string
+}
+
+func NewClient(token string) *Client {
+	return &Client{token: token}
+}
+
+func (c *Client) NewStories() ([]Story, error) {
 	req, err := http.NewRequest("GET", "https://api.storyblok.com/v1/cdn/stories", nil)
 	if err != nil {
 		return nil, err
@@ -76,7 +84,7 @@ func NewStories() ([]Story, error) {
 	q := req.URL.Query()
 	q.Add("starts_with", "recipes")
 	q.Add("filter_query[translated][in]", "true")
-	q.Add("token", "BWZ2r0aQR0LCU9PXMtE06Qtt")
+	q.Add("token", c.token)
 	req.URL.RawQuery = q.Encode()
 
 	req.Header.Add("Content-Type", "applcation/json")
