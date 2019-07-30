@@ -14,6 +14,8 @@ import (
 
 const apiKey = "YOUR_TRANSLATE_API_KEY"
 
+type Translator struct{}
+
 type TRequest struct {
 	ID         string
 	field      string
@@ -48,7 +50,37 @@ type Fields struct {
 	Fields map[string]string
 }
 
+type Reply struct {
+	ID          interface{}     `json:"id"`
+	Translation storyblok.Story `json:"translation"`
+}
+
+type Request struct {
+	Story storyblok.Story
+}
+
+func (t *Translator) Translate(req *Request, reply *Reply) error {
+	ctx := context.Background()
+
+	tChan := make(chan storyblok.Story)
+	defer close(tChan)
+
+	m := Message{
+		Story:       req.Story,
+		Translation: tChan,
+	}
+
+	go TranslateRecipe(ctx, m)
+
+	reply.Translation = <-tChan
+
+	return nil
+}
+
 func TranslateRecipe(ctx context.Context, m Message) {
+	// m.Translation <- m.Story
+	// return
+
 	fields := Fields{
 		ID: string(m.Story.ID),
 		Fields: map[string]string{

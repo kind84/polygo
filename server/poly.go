@@ -4,13 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
+	"net/rpc/jsonrpc"
 
 	"github.com/julienschmidt/httprouter"
 	"github.com/spf13/viper"
 
 	"github.com/kind84/polygo/storyblok"
-	"github.com/kind84/polygo/translator"
+	"github.com/kind84/polygo/translator/translator"
 )
 
 // --- Storyblok payload
@@ -43,6 +45,7 @@ func main() {
 	mux := httprouter.New()
 	mux.GET("/", hello)
 	mux.POST("/translate", translate)
+	mux.POST("/rpc/translate", rpcTranslate)
 
 	log.Println("Listenting on port 8080")
 	http.ListenAndServe(":8080", mux)
@@ -97,6 +100,40 @@ func translate(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
 	for range stories {
 		t := <-tChan
 		resp.Stories = append(resp.Stories, t)
+	}
+
+	json.NewEncoder(w).Encode(resp)
+}
+
+func rpcTranslate(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+	conn, err := net.Dial("tcp", "localhost:8090")
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer conn.Close()
+
+	sbToken := viper.GetString("storyblok.token")
+	sbClient := storyblok.NewClient(sbToken)
+	stories, err := sbClient.NewStories()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	var resp struct {
+		Stories []storyblok.Story `json:"stories"`
+	}
+
+	c := jsonrpc.NewClient(conn)
+
+	for _, story := range stories {
+		reply := translator.Reply{ID: story.ID}
+		request := translator.Request{Story: story}
+
+		err = c.Call("Translator.Translate", &request, &reply)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		resp.Stories = append(resp.Stories, reply.Translation)
 	}
 
 	json.NewEncoder(w).Encode(resp)
