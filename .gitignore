@@ -13,3 +13,6 @@
 
 # Config file
 *.toml
+
+# Redis files
+*.rdb

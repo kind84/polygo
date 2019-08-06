@@ -2,8 +2,12 @@ package storyblok
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
+	"sync"
 	"time"
+
+	"github.com/go-redis/redis"
 )
 
 type Story struct {
@@ -67,15 +71,76 @@ type Step struct {
 	Thumbnail string `json:"thumbnail"`
 }
 
-type Client struct {
+type Reply struct {
+	ID      interface{} `json:"id"`
+	Stories []Story     `json:"stories"`
+}
+
+type Request struct {
+	Message string `json:"message"`
+}
+
+type StoryBlok struct {
 	token string
+	rdb   *redis.Client
 }
 
-func NewClient(token string) *Client {
-	return &Client{token: token}
+func NewSBClient(token string, r *redis.Client) *StoryBlok {
+	return &StoryBlok{
+		token: token,
+		rdb:   r,
+	}
 }
 
-func (c *Client) NewStories() ([]Story, error) {
+func (s *StoryBlok) NewStories(req *Request, reply *Reply) error {
+	ss, err := s.newSBStories()
+	if err != nil {
+		return err
+	}
+	reply.Stories = ss
+
+	pipe := s.rdb.Pipeline()
+	defer pipe.Close()
+
+	var wg sync.WaitGroup
+	wg.Add(len(ss))
+
+	for _, story := range ss {
+		go func(w *sync.WaitGroup, st Story) {
+			js, err := json.Marshal(st)
+			if err != nil {
+				log.Fatalln(err)
+			}
+			// id := fmt.Sprintf("%v-%v", st.CreatedAt.UnixNano(), st.ID)
+			// msg := map[string]interface{}{id: js}
+			msg := map[string]interface{}{"story": js}
+
+			args := redis.XAddArgs{
+				Stream: "storyblok",
+				// MaxLen       int64 // MAXLEN N
+				// MaxLenApprox int64 // MAXLEN ~ N
+				// ID           string
+				Values: msg,
+			}
+
+			log.Printf("Sending message for story ID %d", st.ID)
+			pipe.XAdd(&args)
+
+			w.Done()
+		}(&wg, story)
+	}
+
+	wg.Wait()
+	log.Println("Wait group done")
+	_, err = pipe.Exec()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	return nil
+}
+
+func (s *StoryBlok) newSBStories() ([]Story, error) {
 	req, err := http.NewRequest("GET", "https://api.storyblok.com/v1/cdn/stories", nil)
 	if err != nil {
 		return nil, err
@@ -84,7 +149,7 @@ func (c *Client) NewStories() ([]Story, error) {
 	q := req.URL.Query()
 	q.Add("starts_with", "recipes")
 	q.Add("filter_query[translated][in]", "true")
-	q.Add("token", c.token)
+	q.Add("token", s.token)
 	req.URL.RawQuery = q.Encode()
 
 	req.Header.Add("Content-Type", "applcation/json")
@@ -98,14 +163,13 @@ func (c *Client) NewStories() ([]Story, error) {
 	}
 	defer res.Body.Close()
 
-	s := struct {
+	ss := struct {
 		Stories []Story `json:"stories"`
 	}{}
 
-	err = json.NewDecoder(res.Body).Decode(&s)
+	err = json.NewDecoder(res.Body).Decode(&ss)
 	if err != nil {
 		return nil, err
 	}
-
-	return s.Stories, nil
+	return ss.Stories, nil
 }

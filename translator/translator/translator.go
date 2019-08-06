@@ -9,7 +9,7 @@ import (
 	"golang.org/x/text/language"
 	"google.golang.org/api/option"
 
-	"github.com/kind84/polygo/storyblok"
+	"github.com/kind84/polygo/storyblok/storyblok"
 )
 
 const apiKey = "YOUR_TRANSLATE_API_KEY"
@@ -29,8 +29,14 @@ type TResponse struct {
 }
 
 type Message struct {
+	ID          string
 	Story       storyblok.Story
-	Translation chan (storyblok.Story)
+	Translation chan TMessage
+}
+
+type TMessage struct {
+	ID    string
+	Story storyblok.Story
 }
 
 type Element struct {
@@ -62,24 +68,29 @@ type Request struct {
 func (t *Translator) Translate(req *Request, reply *Reply) error {
 	ctx := context.Background()
 
-	tChan := make(chan storyblok.Story)
+	tChan := make(chan TMessage)
 	defer close(tChan)
 
 	m := Message{
+		ID:          req.Story.UUID,
 		Story:       req.Story,
 		Translation: tChan,
 	}
 
 	go TranslateRecipe(ctx, m)
 
-	reply.Translation = <-tChan
+	tm := <-tChan
+	reply.Translation = tm.Story
 
 	return nil
 }
 
 func TranslateRecipe(ctx context.Context, m Message) {
-	// m.Translation <- m.Story
-	// return
+	m.Translation <- TMessage{
+		ID:    m.ID,
+		Story: m.Story,
+	}
+	return
 
 	fields := Fields{
 		ID: string(m.Story.ID),
@@ -137,7 +148,11 @@ func TranslateRecipe(ctx context.Context, m Message) {
 	}
 
 	// send translated recipe over the channel
-	m.Translation <- s
+	tm := TMessage{
+		ID:    m.ID,
+		Story: s,
+	}
+	m.Translation <- tm
 }
 
 func translateFields(ctx context.Context, f Fields, resChan chan (TResponse)) {
