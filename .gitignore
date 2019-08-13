@@ -16,3 +16,6 @@
 
 # Redis files
 *.rdb
+
+# Google cloud key file
+gcloud-key.json

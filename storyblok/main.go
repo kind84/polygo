@@ -60,7 +60,7 @@ func main() {
 	rdb := redis.NewClient(&redis.Options{Addr: rh})
 
 	// create consumer group if not done yet
-	rdb.XGroupCreate("translator", "storyBlokz", "$")
+	rdb.XGroupCreate("translator", "storybloks", "$")
 
 	lastID := "0-0"
 	checkHistory := true
@@ -71,7 +71,7 @@ func main() {
 		}
 
 		args := redis.XReadGroupArgs{
-			Group:    "storyBlokz",
+			Group:    "storybloks",
 			Consumer: "storyBloker",
 			// List of streams and ids.
 			Streams: []string{"translator", lastID},
@@ -102,7 +102,7 @@ func main() {
 			_, err := ackNaddScript.Run(
 				rdb,
 				[]string{"translator"}, // KEYS
-				[]string{"storyBlokz", msg.ID}, // ARGV
+				[]string{"storybloks", msg.ID}, // ARGV
 			).Result()
 
 			if err != nil {

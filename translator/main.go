@@ -56,9 +56,10 @@ func main() {
 
 	rh := viper.GetString("redis.host")
 	rdb := redis.NewClient(&redis.Options{Addr: rh})
+	defer rdb.Close()
 
 	// create consumer group if not done yet
-	rdb.XGroupCreate("storyblok", "transl8", "$").Result()
+	rdb.XGroupCreate("storyblok", "translate", "$").Result()
 
 	lastID := "0-0"
 	checkHistory := true
@@ -68,8 +69,8 @@ func main() {
 			lastID = ">"
 		}
 
-		args := redis.XReadGroupArgs{
-			Group:    "transl8",
+		args := &redis.XReadGroupArgs{
+			Group:    "translate",
 			Consumer: "translator",
 			// List of streams and ids.
 			Streams: []string{"storyblok", lastID},
@@ -78,7 +79,7 @@ func main() {
 			// NoAck   bool
 		}
 
-		items := rdb.XReadGroup(&args)
+		items := rdb.XReadGroup(args)
 		if items == nil {
 			// Timeout
 			continue
@@ -98,7 +99,13 @@ func main() {
 			// lastID = msg.ID
 
 			var story storyblok.Story
-			err := json.Unmarshal([]byte(msg.Values["story"].(string)), &story)
+
+			storyStr, ok := msg.Values["story"].(string)
+			if !ok {
+				log.Printf("Error parsing message ID %v into string.", msg.ID)
+			}
+
+			err := json.Unmarshal([]byte(storyStr), &story)
 			if err != nil {
 				// if a message is malformed continue to process other messages
 				log.Println(err)
@@ -135,11 +142,11 @@ func main() {
 			_, err = ackNaddScript.Run(
 				rdb,
 				[]string{"storyblok", "translator"}, // KEYS
-				[]string{"transl8", tMsg.ID, "translation", string(js)}, // ARGV
+				[]string{"translate", tMsg.ID, "translation", string(js)}, // ARGV
 			).Result()
 
 			if err != nil {
-				// if an error occurred running the script skip to the next story-
+				// if an error occurred running the script skip to the next story
 				log.Println(err)
 				continue
 			}

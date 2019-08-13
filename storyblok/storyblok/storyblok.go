@@ -115,7 +115,7 @@ func (s *StoryBlok) NewStories(req *Request, reply *Reply) error {
 			// msg := map[string]interface{}{id: js}
 			msg := map[string]interface{}{"story": js}
 
-			args := redis.XAddArgs{
+			args := &redis.XAddArgs{
 				Stream: "storyblok",
 				// MaxLen       int64 // MAXLEN N
 				// MaxLenApprox int64 // MAXLEN ~ N
@@ -124,7 +124,7 @@ func (s *StoryBlok) NewStories(req *Request, reply *Reply) error {
 			}
 
 			log.Printf("Sending message for story ID %d", st.ID)
-			pipe.XAdd(&args)
+			pipe.XAdd(args)
 
 			w.Done()
 		}(&wg, story)

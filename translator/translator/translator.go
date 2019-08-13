@@ -86,11 +86,11 @@ func (t *Translator) Translate(req *Request, reply *Reply) error {
 }
 
 func TranslateRecipe(ctx context.Context, m Message) {
-	m.Translation <- TMessage{
-		ID:    m.ID,
-		Story: m.Story,
-	}
-	return
+	// m.Translation <- TMessage{
+	// 	ID:    m.ID,
+	// 	Story: m.Story,
+	// }
+	// return
 
 	fields := Fields{
 		ID: string(m.Story.ID),
