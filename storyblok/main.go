@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -117,7 +119,14 @@ func main() {
 				continue
 			}
 
-			fmt.Println(msg.Values["translation"].(string))
+			jsn := msg.Values["translation"].(string)
+			var prettyJson bytes.Buffer
+			err = json.Indent(&prettyJson, []byte(jsn), "", "\t")
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+			fmt.Println(string(prettyJson.Bytes()))
 		}
 	}
 }

@@ -215,7 +215,7 @@ func TestTranslateText(t *testing.T) {
 	}
 	defer client.Close()
 
-	resp, err := client.Translate(ctx, []string{"cat"}, language.Italian, nil)
+	resp, err := client.Translate(ctx, []string{"gatto"}, language.English, nil)
 	if err != nil {
 		t.Error(err)
 		return
@@ -225,7 +225,7 @@ func TestTranslateText(t *testing.T) {
 		t.Error("Error: missing translation response")
 		return
 	}
-	if resp[0].Text != "gatto" {
-		t.Errorf("Error translating text: got '%s', want 'gatto'", resp[0].Text)
+	if resp[0].Text != "cat" {
+		t.Errorf("Error translating text: got '%s', want 'cat'", resp[0].Text)
 	}
 }

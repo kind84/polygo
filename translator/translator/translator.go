@@ -188,7 +188,7 @@ func translateText(ctx context.Context, tReq TRequest) TResponse {
 	// 	return tResp, err
 	// }
 
-	resp, err := client.Translate(ctx, []string{tReq.sourceText}, language.AmericanEnglish, nil)
+	resp, err := client.Translate(ctx, []string{tReq.sourceText}, language.English, nil)
 	if err != nil {
 		log.Fatalln(err)
 	}
