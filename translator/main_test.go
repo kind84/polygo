@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
+	"cloud.google.com/go/translate"
 	"github.com/go-redis/redis"
 	"github.com/spf13/viper"
+	"golang.org/x/text/language"
 )
 
 func TestRedisConn(t *testing.T) {
@@ -161,9 +164,6 @@ func TestRedisScript(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	// if r != 1 {
-	// 	t.Errorf("Acknowledge of message id %v failed", id)
-	// }
 
 	argsReadTo := &redis.XReadGroupArgs{
 		Group:    groupTo,
@@ -205,4 +205,27 @@ func TestRedisScript(t *testing.T) {
 
 	rdb.XDel(streamFrom, idFrom).Result()
 	rdb.XDel(streamFrom, idTo.(string)).Result()
+}
+
+func TestTranslateText(t *testing.T) {
+	ctx := context.TODO()
+	client, err := translate.NewClient(ctx)
+	if err != nil {
+		t.Error(err)
+	}
+	defer client.Close()
+
+	resp, err := client.Translate(ctx, []string{"cat"}, language.Italian, nil)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if resp == nil {
+		t.Error("Error: missing translation response")
+		return
+	}
+	if resp[0].Text != "gatto" {
+		t.Errorf("Error translating text: got '%s', want 'gatto'", resp[0].Text)
+	}
 }

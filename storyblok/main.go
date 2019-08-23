@@ -10,7 +10,7 @@ import (
 
 	"github.com/go-redis/redis"
 	"github.com/spf13/viper"
-	
+
 	"github.com/kind84/polygo/storyblok/storyblok"
 )
 
@@ -53,14 +53,18 @@ func init() {
 }
 
 func main() {
-	log.Println("Listening on port 8070")
+	log.Println("Jsonrpc server listening on port 8070")
 	go startServer()
+
+	stream := "translator"
+	group := "storybloks"
+	consumer := "storybloker"
 
 	rh := viper.GetString("redis.host")
 	rdb := redis.NewClient(&redis.Options{Addr: rh})
 
 	// create consumer group if not done yet
-	rdb.XGroupCreate("translator", "storybloks", "$")
+	rdb.XGroupCreate(stream, group, "$")
 
 	lastID := "0-0"
 	checkHistory := true
@@ -71,10 +75,10 @@ func main() {
 		}
 
 		args := redis.XReadGroupArgs{
-			Group:    "storybloks",
-			Consumer: "storyBloker",
+			Group:    group,
+			Consumer: consumer,
 			// List of streams and ids.
-			Streams: []string{"translator", lastID},
+			Streams: []string{stream, lastID},
 			// Count   int64
 			Block: time.Millisecond * 2000,
 			// NoAck   bool
@@ -92,21 +96,23 @@ func main() {
 		}
 
 		tStream := items.Val()[0]
+		log.Printf("Consumer %s received %d messages\n", consumer, len(tStream.Messages))
 		for _, msg := range tStream.Messages {
+			log.Printf("Consumer %s reading message ID %s\n", consumer, msg.ID)
 			lastID = msg.ID
-			
+
 			ackNaddScript := redis.NewScript(`
 				return redis.call("xack", KEYS[1], ARGV[1], ARGV[2])
 			`)
 
 			_, err := ackNaddScript.Run(
 				rdb,
-				[]string{"translator"}, // KEYS
-				[]string{"storybloks", msg.ID}, // ARGV
+				[]string{stream},        // KEYS
+				[]string{group, msg.ID}, // ARGV
 			).Result()
 
 			if err != nil {
-				// if an error occurred running the script skip to the next story-
+				// if an error occurred running the script skip to the next story
 				log.Println(err)
 				continue
 			}

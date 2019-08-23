@@ -123,8 +123,12 @@ func (s *StoryBlok) NewStories(req *Request, reply *Reply) error {
 				Values: msg,
 			}
 
-			log.Printf("Sending message for story ID %d", st.ID)
-			pipe.XAdd(args)
+			id, err := pipe.XAdd(args).Result()
+			if err != nil {
+				log.Fatalln(err)
+			}
+
+			log.Printf("Sending message ID %s for story ID %d", id, st.ID)
 
 			w.Done()
 		}(&wg, story)

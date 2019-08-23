@@ -7,12 +7,11 @@ import (
 
 	"cloud.google.com/go/translate"
 	"golang.org/x/text/language"
-	"google.golang.org/api/option"
 
 	"github.com/kind84/polygo/storyblok/storyblok"
 )
 
-const apiKey = "YOUR_TRANSLATE_API_KEY"
+// const apiKey = "YOUR_TRANSLATE_API_KEY"
 
 type Translator struct{}
 
@@ -132,7 +131,7 @@ func TranslateRecipe(ctx context.Context, m Message) {
 
 	val := reflect.ValueOf(&s.Content).Elem()
 
-	for i := 0; i < len(fields.Fields)+(len(s.Content.Steps)*2); i++ {
+	for i := 0; i < len(fields.Fields)+(len(s.Content.Steps)*2); i++ { // TODO: use steps fields count instead of the hardcoded number
 		select {
 		case t := <-resChan:
 			val.FieldByName(t.field).SetString(t.translation)
@@ -148,6 +147,7 @@ func TranslateRecipe(ctx context.Context, m Message) {
 	}
 
 	// send translated recipe over the channel
+	log.Printf("Translated message ID %s\n", m.ID)
 	tm := TMessage{
 		ID:    m.ID,
 		Story: s,
@@ -177,7 +177,7 @@ func translateFields(ctx context.Context, f Fields, resChan chan (TResponse)) {
 }
 
 func translateText(ctx context.Context, tReq TRequest) TResponse {
-	client, err := translate.NewClient(ctx, option.WithAPIKey(apiKey))
+	client, err := translate.NewClient(ctx)
 	if err != nil {
 		log.Fatalln(err)
 	}

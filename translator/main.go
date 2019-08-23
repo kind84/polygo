@@ -51,15 +51,19 @@ func init() {
 }
 
 func main() {
-	log.Println("Listening on port 8090")
+	log.Println("Jsonrpc sever listening on port 8090")
 	go startServer()
+
+	streamFrom := "storyblok"
+	group := "translate"
+	consumer := "translator"
 
 	rh := viper.GetString("redis.host")
 	rdb := redis.NewClient(&redis.Options{Addr: rh})
 	defer rdb.Close()
 
 	// create consumer group if not done yet
-	rdb.XGroupCreate("storyblok", "translate", "$").Result()
+	rdb.XGroupCreate(streamFrom, group, "$").Result()
 
 	lastID := "0-0"
 	checkHistory := true
@@ -70,10 +74,10 @@ func main() {
 		}
 
 		args := &redis.XReadGroupArgs{
-			Group:    "translate",
-			Consumer: "translator",
+			Group:    group,
+			Consumer: consumer,
 			// List of streams and ids.
-			Streams: []string{"storyblok", lastID},
+			Streams: []string{streamFrom, lastID},
 			// Count   int64
 			Block: time.Millisecond * 2000,
 			// NoAck   bool
@@ -90,14 +94,16 @@ func main() {
 			continue
 		}
 
+		// translation channel
 		tChan := make(chan translator.TMessage)
 		defer close(tChan)
 
 		sbStream := items.Val()[0]
-		log.Printf("Received %d messages\n", len(sbStream.Messages))
+		log.Printf("Consumer %s received %d messages\n", consumer, len(sbStream.Messages))
 		for _, msg := range sbStream.Messages {
 			// lastID = msg.ID
 
+			log.Printf("Consumer %s reading message ID %s\n", consumer, msg.ID)
 			var story storyblok.Story
 
 			storyStr, ok := msg.Values["story"].(string)
@@ -141,8 +147,8 @@ func main() {
 
 			_, err = ackNaddScript.Run(
 				rdb,
-				[]string{"storyblok", "translator"}, // KEYS
-				[]string{"translate", tMsg.ID, "translation", string(js)}, // ARGV
+				[]string{streamFrom, "translator"}, // KEYS
+				[]string{group, tMsg.ID, "translation", string(js)}, // ARGV
 			).Result()
 
 			if err != nil {
