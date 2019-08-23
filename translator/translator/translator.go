@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"reflect"
+	"strconv"
 
 	"cloud.google.com/go/translate"
 	"golang.org/x/text/language"
@@ -107,12 +108,15 @@ func TranslateRecipe(ctx context.Context, m Message) {
 
 	resChan := make(chan TResponse)
 	stpChan := make(chan TResponse)
+	igrChan := make(chan TResponse)
 	defer close(resChan)
 	defer close(stpChan)
+	defer close(igrChan)
 
 	go translateFields(ctx, fields, resChan)
 
-	fm := make(map[string]map[string]string, len(s.Content.Steps))
+	sfm := make(map[string]map[string]string, len(s.Content.Steps))
+	ifm := make(map[string]map[string]string, len(s.Content.Ingredients.Ingredients))
 	for _, stp := range s.Content.Steps {
 		stpFields := Fields{
 			ID: stp.UID,
@@ -121,7 +125,7 @@ func TranslateRecipe(ctx context.Context, m Message) {
 				"Content": stp.Content,
 			},
 		}
-		fm[stp.UID] = map[string]string{
+		sfm[stp.UID] = map[string]string{
 			"Title":   "",
 			"Content": "",
 		}
@@ -129,21 +133,43 @@ func TranslateRecipe(ctx context.Context, m Message) {
 		go translateFields(ctx, stpFields, stpChan)
 	}
 
+	for i, igr := range s.Content.Ingredients.Ingredients {
+		igrFields := Fields{
+			ID: strconv.Itoa(i),
+			Fields: map[string]string{
+				"Name": igr.Name,
+			},
+		}
+		ifm[strconv.Itoa(i)] = map[string]string{
+			"Name": "",
+		}
+
+		go translateFields(ctx, igrFields, igrChan)
+	}
+
 	val := reflect.ValueOf(&s.Content).Elem()
 
-	for i := 0; i < len(fields.Fields)+(len(s.Content.Steps)*2); i++ { // TODO: use steps fields count instead of the hardcoded number
+	totFields := len(fields.Fields) + (len(s.Content.Steps) * 2) + len(s.Content.Ingredients.Ingredients)
+	for i := 0; i < totFields; i++ { // TODO: use steps fields count instead of the hardcoded number
 		select {
 		case t := <-resChan:
 			val.FieldByName(t.field).SetString(t.translation)
 		case stpT := <-stpChan:
-			fm[stpT.ID][stpT.field] = stpT.translation
+			sfm[stpT.ID][stpT.field] = stpT.translation
+		case igrT := <-igrChan:
+			ifm[igrT.ID][igrT.field] = igrT.translation
 		}
 	}
 
 	for i := 0; i < len(s.Content.Steps); i++ {
-		sm := fm[s.Content.Steps[i].UID]
+		sm := sfm[s.Content.Steps[i].UID]
 		s.Content.Steps[i].Title = sm["Title"]
 		s.Content.Steps[i].Content = sm["Content"]
+	}
+
+	for i := 0; i < len(s.Content.Ingredients.Ingredients); i++ {
+		im := ifm[strconv.Itoa(i)]
+		s.Content.Ingredients.Ingredients[i].Name = im["Name"]
 	}
 
 	// send translated recipe over the channel
