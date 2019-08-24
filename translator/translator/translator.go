@@ -65,6 +65,13 @@ type Request struct {
 	Story storyblok.Story
 }
 
+var units map[string]struct{} = map[string]struct{}{
+	"gr": struct{}{},
+	"kg": struct{}{},
+	"ml": struct{}{},
+	"lt": struct{}{},
+}
+
 func (t *Translator) Translate(req *Request, reply *Reply) error {
 	ctx := context.Background()
 
@@ -138,10 +145,12 @@ func TranslateRecipe(ctx context.Context, m Message) {
 			ID: strconv.Itoa(i),
 			Fields: map[string]string{
 				"Name": igr.Name,
+				"Unit": igr.Unit,
 			},
 		}
 		ifm[strconv.Itoa(i)] = map[string]string{
 			"Name": "",
+			"Unit": "",
 		}
 
 		go translateFields(ctx, igrFields, igrChan)
@@ -149,7 +158,7 @@ func TranslateRecipe(ctx context.Context, m Message) {
 
 	val := reflect.ValueOf(&s.Content).Elem()
 
-	totFields := len(fields.Fields) + (len(s.Content.Steps) * 2) + len(s.Content.Ingredients.Ingredients)
+	totFields := len(fields.Fields) + (len(s.Content.Steps) * 2) + (len(s.Content.Ingredients.Ingredients) * 2)
 	for i := 0; i < totFields; i++ { // TODO: use steps fields count instead of the hardcoded number
 		select {
 		case t := <-resChan:
@@ -170,6 +179,7 @@ func TranslateRecipe(ctx context.Context, m Message) {
 	for i := 0; i < len(s.Content.Ingredients.Ingredients); i++ {
 		im := ifm[strconv.Itoa(i)]
 		s.Content.Ingredients.Ingredients[i].Name = im["Name"]
+		s.Content.Ingredients.Ingredients[i].Unit = im["Unit"]
 	}
 
 	// send translated recipe over the channel
@@ -183,7 +193,9 @@ func TranslateRecipe(ctx context.Context, m Message) {
 
 func translateFields(ctx context.Context, f Fields, resChan chan (TResponse)) {
 	for k, v := range f.Fields {
-		if v != "" {
+		// numbers, units and empty fields don't need translation
+		_, unit := units[v]
+		if _, err := strconv.ParseFloat(v, 64); err != nil && v != "" && !unit {
 			tReq := TRequest{
 				ID:         f.ID,
 				field:      k,
@@ -196,7 +208,7 @@ func translateFields(ctx context.Context, f Fields, resChan chan (TResponse)) {
 			resChan <- TResponse{
 				ID:          f.ID,
 				field:       k,
-				translation: "",
+				translation: v,
 			}
 		}
 	}
