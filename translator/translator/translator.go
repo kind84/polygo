@@ -226,7 +226,11 @@ func translateText(ctx context.Context, tReq TRequest) TResponse {
 	// 	return tResp, err
 	// }
 
-	resp, err := client.Translate(ctx, []string{tReq.sourceText}, language.English, nil)
+	opts := &translate.Options{
+		Source: language.Italian,
+	}
+
+	resp, err := client.Translate(ctx, []string{tReq.sourceText}, language.English, opts)
 	if err != nil {
 		log.Fatalln(err)
 	}
