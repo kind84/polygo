@@ -127,6 +127,8 @@ func main() {
 				continue
 			}
 			fmt.Println(string(prettyJson.Bytes()))
+
+			// re-send translated story to be translated in other languages
 		}
 	}
 }
