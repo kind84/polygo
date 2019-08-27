@@ -2,19 +2,18 @@ package translator
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"reflect"
 	"strconv"
+	"time"
 
 	"cloud.google.com/go/translate"
+	"github.com/go-redis/redis"
 	"golang.org/x/text/language"
 
 	"github.com/kind84/polygo/storyblok/storyblok"
 )
-
-// const apiKey = "YOUR_TRANSLATE_API_KEY"
-
-type Translator struct{}
 
 type TRequest struct {
 	ID         string
@@ -65,6 +64,10 @@ type Request struct {
 	Story storyblok.Story
 }
 
+type translator struct {
+	shutdownCh chan struct{}
+}
+
 var units map[string]struct{} = map[string]struct{}{
 	"gr": struct{}{},
 	"kg": struct{}{},
@@ -72,7 +75,24 @@ var units map[string]struct{} = map[string]struct{}{
 	"lt": struct{}{},
 }
 
-func (t *Translator) Translate(req *Request, reply *Reply) error {
+func NewTranslator() Translator {
+	return &translator{make(chan struct{})}
+}
+
+func (t *translator) CloseGracefully() {
+	close(t.shutdownCh)
+}
+
+func (t *translator) shouldExit() bool {
+	select {
+	case _, ok := <-t.shutdownCh:
+		return !ok
+	default:
+	}
+	return false
+}
+
+func (t *translator) Translate(req *Request, reply *Reply) error {
 	ctx := context.Background()
 
 	tChan := make(chan TMessage)
@@ -84,7 +104,7 @@ func (t *Translator) Translate(req *Request, reply *Reply) error {
 		Translation: tChan,
 	}
 
-	go TranslateRecipe(ctx, m)
+	go translateRecipe(ctx, m)
 
 	tm := <-tChan
 	reply.Translation = tm.Story
@@ -92,7 +112,113 @@ func (t *Translator) Translate(req *Request, reply *Reply) error {
 	return nil
 }
 
-func TranslateRecipe(ctx context.Context, m Message) {
+func (t *translator) ReadStoryGroup(rdb *redis.Client) {
+	streamFrom := "storyblok"
+	group := "translate"
+	consumer := "translator"
+
+	// create consumer group if not done yet
+	rdb.XGroupCreate(streamFrom, group, "$").Result()
+
+	lastID := "0-0"
+	checkHistory := true
+
+	for {
+		if !checkHistory {
+			lastID = ">"
+		}
+
+		args := &redis.XReadGroupArgs{
+			Group:    group,
+			Consumer: consumer,
+			// List of streams and ids.
+			Streams: []string{streamFrom, lastID},
+			// Count   int64
+			Block: time.Millisecond * 2000,
+			// NoAck   bool
+		}
+
+		items := rdb.XReadGroup(args)
+		if items == nil {
+			// Timeout, check if it's time to exit
+			if t.shouldExit() {
+				return
+			}
+			continue
+		}
+
+		if len(items.Val()) == 0 || len(items.Val()[0].Messages) == 0 {
+			checkHistory = false
+			continue
+		}
+
+		// translation channel
+		tChan := make(chan TMessage)
+		defer close(tChan)
+
+		sbStream := items.Val()[0]
+		log.Printf("Consumer %s received %d messages\n", consumer, len(sbStream.Messages))
+		for _, msg := range sbStream.Messages {
+			// lastID = msg.ID
+
+			log.Printf("Consumer %s reading message ID %s\n", consumer, msg.ID)
+			var story storyblok.Story
+
+			storyStr, ok := msg.Values["story"].(string)
+			if !ok {
+				log.Printf("Error parsing message ID %v into string.", msg.ID)
+			}
+
+			err := json.Unmarshal([]byte(storyStr), &story)
+			if err != nil {
+				// if a message is malformed continue to process other messages
+				log.Println(err)
+				continue
+			}
+
+			ctx := context.Background()
+			m := Message{
+				ID:          msg.ID,
+				Story:       story,
+				Translation: tChan,
+			}
+
+			go translateRecipe(ctx, m)
+		}
+
+		for i := 0; i < len(sbStream.Messages); i++ {
+			tMsg := <-tChan
+
+			js, err := json.Marshal(tMsg.Story)
+			if err != nil {
+				// if a story is malformed continue to process other stories
+				log.Println(err)
+				continue
+			}
+
+			ackNaddScript := redis.NewScript(`
+				if redis.call("xack", KEYS[1], ARGV[1], ARGV[2]) == 1 then
+					return redis.call("xadd", KEYS[2], "*", ARGV[3], ARGV[4])
+				end
+				return false
+			`)
+
+			_, err = ackNaddScript.Run(
+				rdb,
+				[]string{streamFrom, "translator"}, // KEYS
+				[]string{group, tMsg.ID, "translation", string(js)}, // ARGV
+			).Result()
+
+			if err != nil {
+				// if an error occurred running the script skip to the next story
+				log.Println(err)
+				continue
+			}
+		}
+	}
+}
+
+func translateRecipe(ctx context.Context, m Message) {
 	// m.Translation <- TMessage{
 	// 	ID:    m.ID,
 	// 	Story: m.Story,
