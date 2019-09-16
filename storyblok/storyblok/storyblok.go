@@ -93,12 +93,14 @@ func NewSBClient(token string, r *redis.Client) *StoryBlok {
 }
 
 func (s *StoryBlok) NewStories(req *Request, reply *Reply) error {
+	// get new stories from Storyblok api
 	ss, err := s.newSBStories()
 	if err != nil {
 		return err
 	}
 	reply.Stories = ss
 
+	// create a pipeline to add messages to the stream in a single transaction
 	pipe := s.rdb.Pipeline()
 	defer pipe.Close()
 
@@ -111,8 +113,7 @@ func (s *StoryBlok) NewStories(req *Request, reply *Reply) error {
 			if err != nil {
 				log.Fatalln(err)
 			}
-			// id := fmt.Sprintf("%v-%v", st.CreatedAt.UnixNano(), st.ID)
-			// msg := map[string]interface{}{id: js}
+
 			msg := map[string]interface{}{"story": js}
 
 			args := &redis.XAddArgs{
@@ -123,6 +124,7 @@ func (s *StoryBlok) NewStories(req *Request, reply *Reply) error {
 				Values: msg,
 			}
 
+			// add message to the pipeline
 			id, err := pipe.XAdd(args).Result()
 			if err != nil {
 				log.Fatalln(err)
@@ -136,6 +138,8 @@ func (s *StoryBlok) NewStories(req *Request, reply *Reply) error {
 
 	wg.Wait()
 	log.Println("Wait group done")
+
+	// commit the transaction to the stream
 	_, err = pipe.Exec()
 	if err != nil {
 		log.Fatalln(err)

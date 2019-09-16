@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
-	//	"net"
-	//	"net/rpc"
-	//	"net/rpc/jsonrpc"
+	"net"
+	"net/rpc"
+	"net/rpc/jsonrpc"
 	"os"
 	"os/signal"
 	"runtime"
@@ -17,24 +17,25 @@ import (
 	"github.com/kind84/polygo/translator/translator"
 )
 
-//func startServer(t translator.Translator) {
-//	server := rpc.NewServer()
-//	server.Register(t)
-//
-//	l, err := net.Listen("tcp", ":8090")
-//	if err != nil {
-//		log.Fatalln("listen error:", err)
-//	}
-//
-//	for {
-//		conn, err := l.Accept()
-//		if err != nil {
-//			log.Fatalln(err)
-//		}
-//
-//		go server.ServeCodec(jsonrpc.NewServerCodec(conn))
-//	}
-//}
+// start rpc server
+func startServer(t *translator.RPCTranslator) {
+	server := rpc.NewServer()
+	server.Register(t)
+
+	l, err := net.Listen("tcp", ":8090")
+	if err != nil {
+		log.Fatalln("listen error:", err)
+	}
+
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			log.Fatalln(err)
+		}
+
+		go server.ServeCodec(jsonrpc.NewServerCodec(conn))
+	}
+}
 
 func init() {
 	fmt.Println("Setting up configuration...")
@@ -52,27 +53,36 @@ func init() {
 func main() {
 	shutdownCh := make(chan os.Signal, 1)
 
-	// Wire sutdownCh to get events depending on the OS we are running in
+	// Wire shutdownCh to get events depending on the OS we are running in
 	if runtime.GOOS == "windows" {
-		println("Listening to Windows OS interrupt signal for graceful shutdown.")
+		fmt.Println("Listening to Windows OS interrupt signal for graceful shutdown.")
 		signal.Notify(shutdownCh, os.Interrupt)
 
 	} else {
-		println("Listening to SIGINT or SIGTERM for graceful shutdown.")
+		fmt.Println("Listening to SIGINT or SIGTERM for graceful shutdown.")
 		signal.Notify(shutdownCh, syscall.SIGINT, syscall.SIGTERM)
 	}
 
-	t := translator.NewTranslator()
+	rpcT := new(translator.RPCTranslator)
 
+	// start jsonrpc server
 	fmt.Println("Jsonrpc sever listening on port 8090")
-	//go startServer(t)
+	go startServer(rpcT)
 
+	// setting up redis client
 	rh := viper.GetString("redis.host")
 	rdb := redis.NewClient(&redis.Options{Addr: rh})
 	defer rdb.Close()
 
+	t := translator.NewTranslator()
+
+	streamFrom := "storyblok"
+	group := "translate"
+	consumer := "translator"
+	streamTo := "translator"
+
 	// start reading streams
-	go t.ReadStoryGroup(rdb)
+	go t.ReadStoryGroup(rdb, streamFrom, group, consumer, streamTo)
 
 	// wait for shutdown
 	if <-shutdownCh != nil {

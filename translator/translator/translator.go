@@ -64,6 +64,8 @@ type Request struct {
 	Story storyblok.Story
 }
 
+type RPCTranslator struct{}
+
 type translator struct {
 	shutdownCh chan struct{}
 }
@@ -92,7 +94,7 @@ func (t *translator) shouldExit() bool {
 	return false
 }
 
-func (t *translator) Translate(req *Request, reply *Reply) error {
+func (t *RPCTranslator) Translate(req *Request, reply *Reply) error {
 	ctx := context.Background()
 
 	tChan := make(chan TMessage)
@@ -112,11 +114,7 @@ func (t *translator) Translate(req *Request, reply *Reply) error {
 	return nil
 }
 
-func (t *translator) ReadStoryGroup(rdb *redis.Client) {
-	streamFrom := "storyblok"
-	group := "translate"
-	consumer := "translator"
-
+func (t *translator) ReadStoryGroup(rdb *redis.Client, streamFrom, group, consumer, streamTo string) {
 	// create consumer group if not done yet
 	rdb.XGroupCreate(streamFrom, group, "$").Result()
 
@@ -205,7 +203,7 @@ func (t *translator) ReadStoryGroup(rdb *redis.Client) {
 
 			_, err = ackNaddScript.Run(
 				rdb,
-				[]string{streamFrom, "translator"}, // KEYS
+				[]string{streamFrom, streamTo}, // KEYS
 				[]string{group, tMsg.ID, "translation", string(js)}, // ARGV
 			).Result()
 
