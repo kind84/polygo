@@ -246,8 +246,11 @@ func translateRecipe(ctx context.Context, m Message) {
 
 	go translateFields(ctx, fields, resChan)
 
+	// initialize steps and ingredients maps to group translations
 	sfm := make(map[string]map[string]string, len(s.Content.Steps))
 	ifm := make(map[string]map[string]string, len(s.Content.Ingredients.Ingredients))
+
+	// launch goroutine for each step
 	for _, stp := range s.Content.Steps {
 		stpFields := Fields{
 			ID: stp.UID,
@@ -264,6 +267,7 @@ func translateRecipe(ctx context.Context, m Message) {
 		go translateFields(ctx, stpFields, stpChan)
 	}
 
+	// launch goroutine for each ingredient
 	for i, igr := range s.Content.Ingredients.Ingredients {
 		igrFields := Fields{
 			ID: strconv.Itoa(i),
@@ -280,12 +284,15 @@ func translateRecipe(ctx context.Context, m Message) {
 		go translateFields(ctx, igrFields, igrChan)
 	}
 
+	// get the reflection Value for the story Content to search for its fields
 	val := reflect.ValueOf(&s.Content).Elem()
 
+	// wait for all channels to return the translation
 	totFields := len(fields.Fields) + (len(s.Content.Steps) * 2) + (len(s.Content.Ingredients.Ingredients) * 2)
 	for i := 0; i < totFields; i++ { // TODO: use steps fields count instead of the hardcoded number
 		select {
 		case t := <-resChan:
+			// search the field name with reflection
 			val.FieldByName(t.field).SetString(t.translation)
 		case stpT := <-stpChan:
 			sfm[stpT.ID][stpT.field] = stpT.translation
@@ -294,12 +301,14 @@ func translateRecipe(ctx context.Context, m Message) {
 		}
 	}
 
+	// retrieve steps translations from map
 	for i := 0; i < len(s.Content.Steps); i++ {
 		sm := sfm[s.Content.Steps[i].UID]
 		s.Content.Steps[i].Title = sm["Title"]
 		s.Content.Steps[i].Content = sm["Content"]
 	}
 
+	// retrieve ingredients translations from map
 	for i := 0; i < len(s.Content.Ingredients.Ingredients); i++ {
 		im := ifm[strconv.Itoa(i)]
 		s.Content.Ingredients.Ingredients[i].Name = im["Name"]

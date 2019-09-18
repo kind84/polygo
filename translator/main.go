@@ -17,6 +17,22 @@ import (
 	"github.com/kind84/polygo/translator/translator"
 )
 
+type streamData struct {
+	streamFrom string
+	group      string
+	consumer   string
+	streamTo   string
+}
+
+var streams = []streamData{
+	streamData{
+		streamFrom: "storyblok",
+		group:      "translate",
+		consumer:   "translator",
+		streamTo:   "translator",
+	},
+}
+
 // start rpc server
 func startServer(t *translator.RPCTranslator) {
 	server := rpc.NewServer()
@@ -76,18 +92,15 @@ func main() {
 
 	t := translator.NewTranslator()
 
-	streamFrom := "storyblok"
-	group := "translate"
-	consumer := "translator"
-	streamTo := "translator"
-
 	// start reading streams
-	go t.ReadStoryGroup(rdb, streamFrom, group, consumer, streamTo)
+	for _, s := range streams {
+		go t.ReadStoryGroup(rdb, s.streamFrom, s.group, s.consumer, s.streamTo)
+	}
 
 	// wait for shutdown
 	if <-shutdownCh != nil {
 		fmt.Println("\nShutdown signal detected, gracefully shutting down...")
 		t.CloseGracefully()
-		fmt.Println("bye")
 	}
+	fmt.Println("bye")
 }

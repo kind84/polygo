@@ -71,6 +71,7 @@ func main() {
 	lastID := "0-0"
 	checkHistory := true
 
+	// listen for translations coming from the stream
 	for {
 		if !checkHistory {
 			lastID = ">"
@@ -103,11 +104,11 @@ func main() {
 			log.Printf("Consumer %s reading message ID %s\n", consumer, msg.ID)
 			lastID = msg.ID
 
-			ackNaddScript := redis.NewScript(`
+			ackScript := redis.NewScript(`
 				return redis.call("xack", KEYS[1], ARGV[1], ARGV[2])
 			`)
 
-			_, err := ackNaddScript.Run(
+			_, err := ackScript.Run(
 				rdb,
 				[]string{stream},        // KEYS
 				[]string{group, msg.ID}, // ARGV
@@ -127,8 +128,6 @@ func main() {
 				continue
 			}
 			fmt.Println(string(prettyJson.Bytes()))
-
-			// re-send translated story to be translated in other languages
 		}
 	}
 }
