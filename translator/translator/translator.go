@@ -15,44 +15,60 @@ import (
 	"github.com/kind84/polygo/storyblok/storyblok"
 )
 
-type TRequest struct {
+// StreamData groups data to establish a connection to an incoming stream and an outgoing stream
+type StreamData struct {
+	StreamFrom string
+	Group      string
+	Consumer   string
+	StreamTo   string
+	LangFrom   language.Tag
+	LangTo     language.Tag
+}
+
+type tRequest struct {
 	ID         string
 	field      string
 	sourceText string
+	sourceLang language.Tag
+	destLang   language.Tag
 }
 
-type TResponse struct {
+type tResponse struct {
 	ID          string
 	field       string
 	translation string
 }
 
-type Message struct {
-	ID          string
-	Story       storyblok.Story
-	Translation chan TMessage
+type tMessage struct {
+	id          string
+	story       storyblok.Story
+	translation chan tChannel
+	sourceLang  language.Tag
+	destLang    language.Tag
 }
 
-type TMessage struct {
-	ID    string
-	Story storyblok.Story
+type tChannel struct {
+	id    string
+	story storyblok.Story
 }
 
-type Element struct {
-	Slice []DeepElement
+type element struct {
+	slice []deepElement
 }
 
-type DeepElement struct {
-	Translation string
-	Source      string
-	Nil1        struct{ Pippo string }
-	Nil2        struct{ Pippo string }
-	Number      int
+type deepElement struct {
+	translation string
+	source      string
+	nil1        struct{ Pippo string }
+	nil2        struct{ Pippo string }
+	number      int
 }
 
-type Fields struct {
-	ID     string
-	Fields map[string]string
+type translationData struct {
+	id         string
+	fields     map[string]string
+	sourceLang language.Tag
+	destLang   language.Tag
 }
 
 type Reply struct {
@@ -77,10 +93,12 @@ var units map[string]struct{} = map[string]struct{}{
 	"lt": struct{}{},
 }
 
+// NewTranslator initialize a new Translator and returns it
 func NewTranslator() Translator {
 	return &translator{make(chan struct{})}
 }
 
+// CloseGracefully sends the shutdown signal to start closing all translator processes
 func (t *translator) CloseGracefully() {
 	close(t.shutdownCh)
 }
@@ -97,26 +115,27 @@ func (t *translator) shouldExit() bool {
 func (t *RPCTranslator) Translate(req *Request, reply *Reply) error {
 	ctx := context.Background()
 
-	tChan := make(chan TMessage)
+	tChan := make(chan tChannel)
 	defer close(tChan)
 
-	m := Message{
-		ID:          req.Story.UUID,
-		Story:       req.Story,
-		Translation: tChan,
+	m := tMessage{
+		id:          req.Story.UUID,
+		story:       req.Story,
+		translation: tChan,
 	}
 
 	go translateRecipe(ctx, m)
 
 	tm := <-tChan
-	reply.Translation = tm.Story
+	reply.Translation = tm.story
 
 	return nil
 }
 
-func (t *translator) ReadStoryGroup(rdb *redis.Client, streamFrom, group, consumer, streamTo string) {
+// ReadStreamAndTranslate reads from the incoming stream and send back the translation to through the recipient stream
+func (t *translator) ReadStreamAndTranslate(rdb *redis.Client, sd StreamData) {
 	// create consumer group if not done yet
-	rdb.XGroupCreate(streamFrom, group, "$").Result()
+	rdb.XGroupCreate(sd.StreamFrom, sd.Group, "$").Result()
 
 	lastID := "0-0"
 	checkHistory := true
@@ -127,10 +146,10 @@ func (t *translator) ReadStoryGroup(rdb *redis.Client, streamFrom, group, consum
 		}
 
 		args := &redis.XReadGroupArgs{
-			Group:    group,
-			Consumer: consumer,
+			Group:    sd.Group,
+			Consumer: sd.Consumer,
 			// List of streams and ids.
-			Streams: []string{streamFrom, lastID},
+			Streams: []string{sd.StreamFrom, lastID},
 			// Count   int64
 			Block: time.Millisecond * 2000,
 			// NoAck   bool
@@ -151,15 +170,15 @@ func (t *translator) ReadStoryGroup(rdb *redis.Client, streamFrom, group, consum
 		}
 
 		// translation channel
-		tChan := make(chan TMessage)
+		tChan := make(chan tChannel)
 		defer close(tChan)
 
 		sbStream := items.Val()[0]
-		log.Printf("Consumer %s received %d messages\n", consumer, len(sbStream.Messages))
+		log.Printf("Consumer %s received %d messages\n", sd.Consumer, len(sbStream.Messages))
 		for _, msg := range sbStream.Messages {
 			// lastID = msg.ID
 
-			log.Printf("Consumer %s reading message ID %s\n", consumer, msg.ID)
+			log.Printf("Consumer %s reading message ID %s\n", sd.Consumer, msg.ID)
 			var story storyblok.Story
 
 			storyStr, ok := msg.Values["story"].(string)
@@ -175,10 +194,12 @@ func (t *translator) ReadStoryGroup(rdb *redis.Client, streamFrom, group, consum
 			}
 
 			ctx := context.Background()
-			m := Message{
-				ID:          msg.ID,
-				Story:       story,
-				Translation: tChan,
+			m := tMessage{
+				id:          msg.ID,
+				story:       story,
+				translation: tChan,
+				sourceLang:  sd.LangFrom,
+				destLang:    sd.LangTo,
 			}
 
 			go translateRecipe(ctx, m)
@@ -187,7 +208,7 @@ func (t *translator) ReadStoryGroup(rdb *redis.Client, streamFrom, group, consum
 		for i := 0; i < len(sbStream.Messages); i++ {
 			tMsg := <-tChan
 
-			js, err := json.Marshal(tMsg.Story)
+			js, err := json.Marshal(tMsg.story)
 			if err != nil {
 				// if a story is malformed continue to process other stories
 				log.Println(err)
@@ -203,8 +224,8 @@ func (t *translator) ReadStoryGroup(rdb *redis.Client, streamFrom, group, consum
 
 			_, err = ackNaddScript.Run(
 				rdb,
-				[]string{streamFrom, streamTo}, // KEYS
-				[]string{group, tMsg.ID, "translation", string(js)}, // ARGV
+				[]string{sd.StreamFrom, sd.StreamTo}, // KEYS
+				[]string{sd.Group, tMsg.id, "translation", string(js)}, // ARGV
 			).Result()
 
 			if err != nil {
@@ -216,35 +237,37 @@ func (t *translator) ReadStoryGroup(rdb *redis.Client, streamFrom, group, consum
 	}
 }
 
-func translateRecipe(ctx context.Context, m Message) {
+func translateRecipe(ctx context.Context, m tMessage) {
 	// m.Translation <- TMessage{
 	// 	ID:    m.ID,
 	// 	Story: m.Story,
 	// }
 	// return
 
-	fields := Fields{
-		ID: string(m.Story.ID),
-		Fields: map[string]string{
-			"Extra":       m.Story.Content.Extra,
-			"Title":       m.Story.Content.Title,
-			"Summary":     m.Story.Content.Summary,
-			"Conclusion":  m.Story.Content.Conclusion,
-			"Description": m.Story.Content.Description,
+	td := translationData{
+		id: string(m.story.ID),
+		fields: map[string]string{
+			"Extra":       m.story.Content.Extra,
+			"Title":       m.story.Content.Title,
+			"Summary":     m.story.Content.Summary,
+			"Conclusion":  m.story.Content.Conclusion,
+			"Description": m.story.Content.Description,
 		},
+		sourceLang: m.sourceLang,
+		destLang:   m.destLang,
 	}
 
 	// copy recipe object and do reflection on the copy
-	s := m.Story
+	s := m.story
 
-	resChan := make(chan TResponse)
-	stpChan := make(chan TResponse)
-	igrChan := make(chan TResponse)
+	resChan := make(chan tResponse)
+	stpChan := make(chan tResponse)
+	igrChan := make(chan tResponse)
 	defer close(resChan)
 	defer close(stpChan)
 	defer close(igrChan)
 
-	go translateFields(ctx, fields, resChan)
+	go translateFields(ctx, td, resChan)
 
 	// initialize steps and ingredients maps to group translations
 	sfm := make(map[string]map[string]string, len(s.Content.Steps))
@@ -252,12 +275,14 @@ func translateRecipe(ctx context.Context, m Message) {
 
 	// launch goroutine for each step
 	for _, stp := range s.Content.Steps {
-		stpFields := Fields{
-			ID: stp.UID,
-			Fields: map[string]string{
+		stpFields := translationData{
+			id: stp.UID,
+			fields: map[string]string{
 				"Title":   stp.Title,
 				"Content": stp.Content,
 			},
+			sourceLang: m.sourceLang,
+			destLang:   m.destLang,
 		}
 		sfm[stp.UID] = map[string]string{
 			"Title":   "",
@@ -269,12 +294,14 @@ func translateRecipe(ctx context.Context, m Message) {
 
 	// launch goroutine for each ingredient
 	for i, igr := range s.Content.Ingredients.Ingredients {
-		igrFields := Fields{
-			ID: strconv.Itoa(i),
-			Fields: map[string]string{
+		igrFields := translationData{
+			id: strconv.Itoa(i),
+			fields: map[string]string{
 				"Name": igr.Name,
 				"Unit": igr.Unit,
 			},
+			sourceLang: m.sourceLang,
+			destLang:   m.destLang,
 		}
 		ifm[strconv.Itoa(i)] = map[string]string{
 			"Name": "",
@@ -288,7 +315,7 @@ func translateRecipe(ctx context.Context, m Message) {
 	val := reflect.ValueOf(&s.Content).Elem()
 
 	// wait for all channels to return the translation
-	totFields := len(fields.Fields) + (len(s.Content.Steps) * 2) + (len(s.Content.Ingredients.Ingredients) * 2)
+	totFields := len(td.fields) + (len(s.Content.Steps) * 2) + (len(s.Content.Ingredients.Ingredients) * 2)
 	for i := 0; i < totFields; i++ { // TODO: use steps fields count instead of the hardcoded number
 		select {
 		case t := <-resChan:
@@ -316,30 +343,32 @@ func translateRecipe(ctx context.Context, m Message) {
 	}
 
 	// send translated recipe over the channel
-	log.Printf("Translated message ID %s\n", m.ID)
-	tm := TMessage{
-		ID:    m.ID,
-		Story: s,
+	log.Printf("Translated message ID %s\n", m.id)
+	tm := tChannel{
+		id:    m.id,
+		story: s,
 	}
-	m.Translation <- tm
+	m.translation <- tm
 }
 
-func translateFields(ctx context.Context, f Fields, resChan chan (TResponse)) {
-	for k, v := range f.Fields {
+func translateFields(ctx context.Context, td translationData, resChan chan (tResponse)) {
+	for k, v := range td.fields {
 		// numbers, units and empty fields don't need translation
 		_, unit := units[v]
 		if _, err := strconv.ParseFloat(v, 64); err != nil && v != "" && !unit {
-			tReq := TRequest{
-				ID:         f.ID,
+			tReq := tRequest{
+				ID:         td.id,
 				field:      k,
 				sourceText: v,
+				sourceLang: td.sourceLang,
+				destLang:   td.destLang,
 			}
 
 			go func() { resChan <- translateText(ctx, tReq) }()
 
 		} else {
-			resChan <- TResponse{
-				ID:          f.ID,
+			resChan <- tResponse{
+				ID:          td.id,
 				field:       k,
 				translation: v,
 			}
@@ -347,7 +376,7 @@ func translateFields(ctx context.Context, f Fields, resChan chan (TResponse)) {
 	}
 }
 
-func translateText(ctx context.Context, tReq TRequest) TResponse {
+func translateText(ctx context.Context, tReq tRequest) tResponse {
 	client, err := translate.NewClient(ctx)
 	if err != nil {
 		log.Fatalln(err)
@@ -360,15 +389,15 @@ func translateText(ctx context.Context, tReq TRequest) TResponse {
 	// }
 
 	opts := &translate.Options{
-		Source: language.Italian,
+		Source: tReq.sourceLang,
 	}
 
-	resp, err := client.Translate(ctx, []string{tReq.sourceText}, language.English, opts)
+	resp, err := client.Translate(ctx, []string{tReq.sourceText}, tReq.destLang, opts)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	return TResponse{
+	return tResponse{
 		ID:          tReq.ID,
 		field:       tReq.field,
 		translation: resp[0].Text,

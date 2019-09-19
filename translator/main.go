@@ -17,19 +17,13 @@ import (
 	"github.com/kind84/polygo/translator/translator"
 )
 
-type streamData struct {
-	streamFrom string
-	group      string
-	consumer   string
-	streamTo   string
-}
-
-var streams = []streamData{
-	streamData{
-		streamFrom: "storyblok",
-		group:      "translate",
-		consumer:   "translator",
-		streamTo:   "translator",
+// setting stream data for each stream to be listening on
+var streams = []translator.StreamData{
+	translator.StreamData{
+		StreamFrom: "storyblok",
+		Group:      "translate",
+		Consumer:   "translator",
+		StreamTo:   "translator",
 	},
 }
 
@@ -94,7 +88,7 @@ func main() {
 
 	// start reading streams
 	for _, s := range streams {
-		go t.ReadStoryGroup(rdb, s.streamFrom, s.group, s.consumer, s.streamTo)
+		go t.ReadStreamAndTranslate(rdb, s)
 	}
 
 	// wait for shutdown
