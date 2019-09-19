@@ -25,6 +25,7 @@ type StreamData struct {
 	LangTo     language.Tag
 }
 
+// The translation request object. Represents a single translation unit.
 type tRequest struct {
 	ID         string
 	field      string
@@ -33,12 +34,14 @@ type tRequest struct {
 	destLang   language.Tag
 }
 
+// The response object from a single translation request.
 type tResponse struct {
 	ID          string
 	field       string
 	translation string
 }
 
+// The translation message buid starting from the stream message.
 type tMessage struct {
 	id          string
 	story       storyblok.Story
@@ -47,6 +50,7 @@ type tMessage struct {
 	destLang    language.Tag
 }
 
+// The channel to send over translations.
 type tChannel struct {
 	id    string
 	story storyblok.Story
@@ -64,6 +68,7 @@ type deepElement struct {
 	number      int
 }
 
+// Group of fields to be translated (root level, steps, ingredients, ...).
 type translationData struct {
 	id         string
 	fields     map[string]string
@@ -82,6 +87,9 @@ type Request struct {
 
 type RPCTranslator struct{}
 
+// translator struct implementing Translator interface.
+// It is responsible of translating data coming from the redis stream
+// and send back translations through another stream.
 type translator struct {
 	shutdownCh chan struct{}
 }
@@ -132,7 +140,7 @@ func (t *RPCTranslator) Translate(req *Request, reply *Reply) error {
 	return nil
 }
 
-// ReadStreamAndTranslate reads from the incoming stream and send back the translation to through the recipient stream
+// ReadStreamAndTranslate reads from the incoming stream and send back the translation through the recipient stream
 func (t *translator) ReadStreamAndTranslate(rdb *redis.Client, sd StreamData) {
 	// create consumer group if not done yet
 	rdb.XGroupCreate(sd.StreamFrom, sd.Group, "$").Result()
@@ -237,6 +245,9 @@ func (t *translator) ReadStreamAndTranslate(rdb *redis.Client, sd StreamData) {
 	}
 }
 
+// translateRecipe receives a translation message to translate a single recipe.
+// It is responsible to group fields homogeneously, send them to be translated
+// and collect translations.
 func translateRecipe(ctx context.Context, m tMessage) {
 	// m.Translation <- TMessage{
 	// 	ID:    m.ID,
@@ -351,6 +362,9 @@ func translateRecipe(ctx context.Context, m tMessage) {
 	m.translation <- tm
 }
 
+// translateFields receives a block of fields to be translated, filters those that need
+// translation and sends each of them to be translated. Once translated it sends translation
+// back through the response channel.
 func translateFields(ctx context.Context, td translationData, resChan chan (tResponse)) {
 	for k, v := range td.fields {
 		// numbers, units and empty fields don't need translation
@@ -376,6 +390,8 @@ func translateFields(ctx context.Context, td translationData, resChan chan (tRes
 	}
 }
 
+// translateText is responsible to call the translation service (Google Cloud)
+// asking for the translation of a single field and send back a translation response object.
 func translateText(ctx context.Context, tReq tRequest) tResponse {
 	client, err := translate.NewClient(ctx)
 	if err != nil {
