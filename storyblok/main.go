@@ -1,14 +1,15 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"net/rpc"
 	"net/rpc/jsonrpc"
-	"time"
+	"os"
+	"os/signal"
+	"runtime"
+	"syscall"
 
 	"github.com/go-redis/redis"
 	"github.com/spf13/viper"
@@ -55,79 +56,46 @@ func init() {
 }
 
 func main() {
+	shutdownCh := make(chan os.Signal, 1)
+
+	// Wire shutdownCh to get events depending on the OS we are running in
+	if runtime.GOOS == "windows" {
+		fmt.Println("Listening to Windows OS interrupt signal for graceful shutdown.")
+		signal.Notify(shutdownCh, os.Interrupt)
+
+	} else {
+		fmt.Println("Listening to SIGINT or SIGTERM for graceful shutdown.")
+		signal.Notify(shutdownCh, syscall.SIGINT, syscall.SIGTERM)
+	}
+
 	log.Println("Jsonrpc server listening on port 8070")
 	go startServer()
 
-	stream := "translator"
-	group := "storybloks"
-	consumer := "storybloker"
+	streams := []storyblok.StreamData{
+		{
+			Stream:   "translation_en",
+			Group:    "storybloks_en",
+			Consumer: "storybloker_en",
+		},
+		{
+			Stream:   "translation_fr",
+			Group:    "storybloks_fr",
+			Consumer: "storybloker_fr",
+		},
+	}
 
 	rh := viper.GetString("redis.host")
 	rdb := redis.NewClient(&redis.Options{Addr: rh})
 
-	// create consumer group if not done yet
-	rdb.XGroupCreate(stream, group, "$")
+	s := storyblok.NewSBConsumer(rdb)
 
-	lastID := "0-0"
-	checkHistory := true
-
-	// listen for translations coming from the stream
-	for {
-		if !checkHistory {
-			lastID = ">"
-		}
-
-		args := redis.XReadGroupArgs{
-			Group:    group,
-			Consumer: consumer,
-			// List of streams and ids.
-			Streams: []string{stream, lastID},
-			// Count   int64
-			Block: time.Millisecond * 2000,
-			// NoAck   bool
-		}
-
-		items := rdb.XReadGroup(&args)
-		if items == nil {
-			// Timeout
-			continue
-		}
-
-		if len(items.Val()) == 0 || len(items.Val()[0].Messages) == 0 {
-			checkHistory = false
-			continue
-		}
-
-		tStream := items.Val()[0]
-		log.Printf("Consumer %s received %d messages\n", consumer, len(tStream.Messages))
-		for _, msg := range tStream.Messages {
-			log.Printf("Consumer %s reading message ID %s\n", consumer, msg.ID)
-			lastID = msg.ID
-
-			ackScript := redis.NewScript(`
-				return redis.call("xack", KEYS[1], ARGV[1], ARGV[2])
-			`)
-
-			_, err := ackScript.Run(
-				rdb,
-				[]string{stream},        // KEYS
-				[]string{group, msg.ID}, // ARGV
-			).Result()
-
-			if err != nil {
-				// if an error occurred running the script skip to the next story
-				log.Println(err)
-				continue
-			}
-
-			jsn := msg.Values["translation"].(string)
-			var prettyJson bytes.Buffer
-			err = json.Indent(&prettyJson, []byte(jsn), "", "\t")
-			if err != nil {
-				log.Println(err)
-				continue
-			}
-			fmt.Println(string(prettyJson.Bytes()))
-		}
+	for _, stream := range streams {
+		go s.ReadTranslation(stream)
 	}
+
+	// wait for shutdown
+	if <-shutdownCh != nil {
+		fmt.Println("\nShutdown signal detected, gracefully shutting down...")
+	}
+	fmt.Println("bye")
 }

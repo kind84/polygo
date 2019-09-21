@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-redis/redis"
 	"github.com/spf13/viper"
+	"golang.org/x/text/language"
 
 	"github.com/kind84/polygo/translator/translator"
 )
@@ -21,9 +22,19 @@ import (
 var streams = []translator.StreamData{
 	translator.StreamData{
 		StreamFrom: "storyblok",
-		Group:      "translate",
-		Consumer:   "translator",
-		StreamTo:   "translator",
+		Group:      "translate_it-en",
+		Consumer:   "translator_it-en",
+		StreamTo:   "translation_en",
+		LangFrom:   language.Italian,
+		LangTo:     language.English,
+	},
+	translator.StreamData{
+		StreamFrom: "translation_en",
+		Group:      "translate_en-fr",
+		Consumer:   "translator_en-fr",
+		StreamTo:   "translation_fr",
+		LangFrom:   language.English,
+		LangTo:     language.French,
 	},
 }
 
@@ -84,11 +95,12 @@ func main() {
 	rdb := redis.NewClient(&redis.Options{Addr: rh})
 	defer rdb.Close()
 
-	t := translator.NewTranslator()
+	t := translator.NewTranslator(rdb)
 
 	// start reading streams
 	for _, s := range streams {
-		go t.ReadStreamAndTranslate(rdb, s)
+		fmt.Printf("Start reading stream %s\n", s.StreamFrom)
+		go t.ReadStreamAndTranslate(s)
 	}
 
 	// wait for shutdown

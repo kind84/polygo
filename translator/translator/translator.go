@@ -92,6 +92,7 @@ type RPCTranslator struct{}
 // and send back translations through another stream.
 type translator struct {
 	shutdownCh chan struct{}
+	rdb        *redis.Client
 }
 
 var units map[string]struct{} = map[string]struct{}{
@@ -102,8 +103,11 @@ var units map[string]struct{} = map[string]struct{}{
 }
 
 // NewTranslator initialize a new Translator and returns it
-func NewTranslator() Translator {
-	return &translator{make(chan struct{})}
+func NewTranslator(rdb *redis.Client) Translator {
+	return &translator{
+		shutdownCh: make(chan struct{}),
+		rdb:        rdb,
+	}
 }
 
 // CloseGracefully sends the shutdown signal to start closing all translator processes
@@ -140,10 +144,12 @@ func (t *RPCTranslator) Translate(req *Request, reply *Reply) error {
 	return nil
 }
 
-// ReadStreamAndTranslate reads from the incoming stream and send back the translation through the recipient stream
-func (t *translator) ReadStreamAndTranslate(rdb *redis.Client, sd StreamData) {
+// ReadStreamAndTranslate reads from the incoming stream and sends back the translation through the recipient stream
+func (t *translator) ReadStreamAndTranslate(sd StreamData) {
 	// create consumer group if not done yet
-	rdb.XGroupCreate(sd.StreamFrom, sd.Group, "$").Result()
+	t.rdb.XGroupCreate(sd.StreamFrom, sd.Group, "$").Result()
+
+	log.Printf("Consumer group %s created\n", sd.Group)
 
 	lastID := "0-0"
 	checkHistory := true
@@ -163,7 +169,7 @@ func (t *translator) ReadStreamAndTranslate(rdb *redis.Client, sd StreamData) {
 			// NoAck   bool
 		}
 
-		items := rdb.XReadGroup(args)
+		items := t.rdb.XReadGroup(args)
 		if items == nil {
 			// Timeout, check if it's time to exit
 			if t.shouldExit() {
@@ -231,9 +237,9 @@ func (t *translator) ReadStreamAndTranslate(rdb *redis.Client, sd StreamData) {
 			`)
 
 			_, err = ackNaddScript.Run(
-				rdb,
+				t.rdb,
 				[]string{sd.StreamFrom, sd.StreamTo}, // KEYS
-				[]string{sd.Group, tMsg.id, "translation", string(js)}, // ARGV
+				[]string{sd.Group, tMsg.id, "story", string(js)}, // ARGV
 			).Result()
 
 			if err != nil {
@@ -241,6 +247,7 @@ func (t *translator) ReadStreamAndTranslate(rdb *redis.Client, sd StreamData) {
 				log.Println(err)
 				continue
 			}
+			log.Printf("Translation for message ID %s sent.\n", tMsg.id)
 		}
 	}
 }
@@ -410,7 +417,7 @@ func translateText(ctx context.Context, tReq tRequest) tResponse {
 
 	resp, err := client.Translate(ctx, []string{tReq.sourceText}, tReq.destLang, opts)
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatalf("Translation service error translating [%s]: %s", tReq.sourceText, err)
 	}
 
 	return tResponse{

@@ -1,7 +1,9 @@
 package storyblok
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -80,15 +82,31 @@ type Request struct {
 	Message string `json:"message"`
 }
 
+type StreamData struct {
+	Stream   string
+	Group    string
+	Consumer string
+}
+
 type StoryBlok struct {
 	token string
 	rdb   *redis.Client
+}
+
+type sbConsumer struct {
+	rdb *redis.Client
 }
 
 func NewSBClient(token string, r *redis.Client) *StoryBlok {
 	return &StoryBlok{
 		token: token,
 		rdb:   r,
+	}
+}
+
+func NewSBConsumer(r *redis.Client) SBConsumer {
+	return &sbConsumer{
+		rdb: r,
 	}
 }
 
@@ -146,6 +164,76 @@ func (s *StoryBlok) NewStories(req *Request, reply *Reply) error {
 	}
 
 	return nil
+}
+
+func (s *sbConsumer) ReadTranslation(sd StreamData) {
+	// create consumer group if not done yet
+	s.rdb.XGroupCreate(sd.Stream, sd.Group, "$")
+
+	fmt.Printf("Consumer group %s created\n", sd.Group)
+
+	lastID := "0-0"
+	checkHistory := true
+
+	// listen for translations coming from the stream
+	for {
+		if !checkHistory {
+			lastID = ">"
+		}
+
+		args := redis.XReadGroupArgs{
+			Group:    sd.Group,
+			Consumer: sd.Consumer,
+			// List of streams and ids.
+			Streams: []string{sd.Stream, lastID},
+			// Count   int64
+			Block: time.Millisecond * 2000,
+			// NoAck   bool
+		}
+
+		items := s.rdb.XReadGroup(&args)
+		if items == nil {
+			// Timeout
+			continue
+		}
+
+		if len(items.Val()) == 0 || len(items.Val()[0].Messages) == 0 {
+			checkHistory = false
+			continue
+		}
+
+		tStream := items.Val()[0]
+		log.Printf("Consumer %s received %d messages\n", sd.Consumer, len(tStream.Messages))
+		for _, msg := range tStream.Messages {
+			log.Printf("Consumer %s reading message ID %s\n", sd.Consumer, msg.ID)
+			lastID = msg.ID
+
+			ackScript := redis.NewScript(`
+				return redis.call("xack", KEYS[1], ARGV[1], ARGV[2])
+			`)
+
+			_, err := ackScript.Run(
+				s.rdb,
+				[]string{sd.Stream},        // KEYS
+				[]string{sd.Group, msg.ID}, // ARGV
+			).Result()
+
+			if err != nil {
+				// if an error occurred running the script skip to the next story
+				log.Println(err)
+				continue
+			}
+
+			jsn := msg.Values["story"].(string)
+			var prettyJson bytes.Buffer
+			err = json.Indent(&prettyJson, []byte(jsn), "", "\t")
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+			fmt.Println(string(prettyJson.Bytes()))
+		}
+	}
 }
 
 func (s *StoryBlok) newSBStories() ([]Story, error) {
