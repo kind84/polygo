@@ -269,3 +269,47 @@ func (s *StoryBlok) newSBStories() ([]Story, error) {
 	}
 	return ss.Stories, nil
 }
+
+func (r Recipe) MarshalJSON() ([]byte, error) {
+	fields := []string{
+		"extra",
+		"title",
+		"summary",
+		"conclusion",
+		"description",
+	}
+
+	return marshalJSON(fields, r)
+}
+
+func (s Step) MarshalJSON() ([]byte, error) {
+	fields := []string{
+		"title",
+		"content",
+	}
+
+	return marshalJSON(fields, s)
+}
+
+func (i Ingredient) MarshalJSON() ([]byte, error) {
+	fields := []string{
+		"name",
+		"unit",
+	}
+
+	return marshalJSON(fields, i)
+}
+
+func marshalJSON(fields []string, obj interface{}) ([]byte, error) {
+	var om map[string]interface{}
+	oj, _ := json.Marshal(obj)
+
+	json.Unmarshal(oj, &om)
+
+	for _, field := range fields {
+		om[field+"_i18n"] = om[field]
+		delete(om, field)
+	}
+
+	return json.Marshal(om)
+}
