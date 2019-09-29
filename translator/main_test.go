@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/translate"
 	"github.com/go-redis/redis"
@@ -47,6 +48,8 @@ func TestRedisConsumerGroup(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+	fmt.Printf("Added message ID [%s] to stream [%s]\n", id, stream)
+	time.Sleep(time.Microsecond * 200)
 
 	argsRead := &redis.XReadGroupArgs{
 		Group:    group,

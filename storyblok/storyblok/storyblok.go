@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"reflect"
 	"sync"
 	"time"
 
@@ -270,46 +271,49 @@ func (s *StoryBlok) newSBStories() ([]Story, error) {
 	return ss.Stories, nil
 }
 
+// define the naming strategy
+func (Recipe) SetJSONname(jsonTag string) string {
+	if jsonTag == "first" {
+		return "name"
+	}
+	return jsonTag
+}
+
+// implement MarshalJSON for type Recipe
 func (r Recipe) MarshalJSON() ([]byte, error) {
-	fields := []string{
-		"extra",
-		"title",
-		"summary",
-		"conclusion",
-		"description",
-	}
 
-	return marshalJSON(fields, r)
+	// specify the naming strategy here
+	return marshalJSON("SetJSONname", r)
 }
 
-func (s Step) MarshalJSON() ([]byte, error) {
-	fields := []string{
-		"title",
-		"content",
+// implement a general marshaler that takes a naming strategy
+func marshalJSON(namingStrategy string, that interface{}) ([]byte, error) {
+	out := map[string]interface{}{}
+	t := reflect.TypeOf(that)
+	v := reflect.ValueOf(that)
+
+	fnctn := v.MethodByName(namingStrategy)
+	fname := func(params ...interface{}) string {
+		in := make([]reflect.Value, len(params))
+		for k, param := range params {
+			in[k] = reflect.ValueOf(param)
+		}
+		return fnctn.Call(in)[0].String()
 	}
-
-	return marshalJSON(fields, s)
-}
-
-func (i Ingredient) MarshalJSON() ([]byte, error) {
-	fields := []string{
-		"name",
-		"unit",
+	outName := ""
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		switch n := f.Tag.Get("json"); n {
+		case "":
+			outName = f.Name
+		case "-":
+			outName = ""
+		default:
+			outName = fname(n)
+		}
+		if outName != "" {
+			out[outName] = v.Field(i).Interface()
+		}
 	}
-
-	return marshalJSON(fields, i)
-}
-
-func marshalJSON(fields []string, obj interface{}) ([]byte, error) {
-	var om map[string]interface{}
-	oj, _ := json.Marshal(obj)
-
-	json.Unmarshal(oj, &om)
-
-	for _, field := range fields {
-		om[field+"_i18n"] = om[field]
-		delete(om, field)
-	}
-
-	return json.Marshal(om)
+	return json.Marshal(out)
 }
