@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-redis/redis"
 	"github.com/julienschmidt/httprouter"
+	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 
 	"github.com/kind84/polygo/storyblok/storyblok"
@@ -147,7 +148,7 @@ func rpcStories(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
 
 	err = c.Call("StoryBlok.NewStories", &request, &reply)
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatalln(errors.WithStack(err))
 	}
 
 	resp := struct {

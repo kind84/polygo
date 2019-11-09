@@ -13,6 +13,7 @@ import (
 	"golang.org/x/text/language"
 
 	"github.com/kind84/polygo/storyblok/storyblok"
+	"github.com/pkg/errors"
 )
 
 // StreamData groups data to establish a connection to an incoming stream and an outgoing stream
@@ -164,7 +165,8 @@ func (t *translator) ReadStreamAndTranslate(sd StreamData) {
 			Consumer: sd.Consumer,
 			// List of streams and ids.
 			Streams: []string{sd.StreamFrom, lastID},
-			// Count   int64
+			// Max no. of elements per stream fo each call.
+			Count: 10,
 			Block: time.Millisecond * 2000,
 			// NoAck   bool
 		}
@@ -203,7 +205,7 @@ func (t *translator) ReadStreamAndTranslate(sd StreamData) {
 			err := json.Unmarshal([]byte(storyStr), &story)
 			if err != nil {
 				// if a message is malformed continue to process other messages
-				log.Println(err)
+				log.Println(errors.WithStack(err))
 				continue
 			}
 
@@ -225,7 +227,7 @@ func (t *translator) ReadStreamAndTranslate(sd StreamData) {
 			js, err := json.Marshal(tMsg.story)
 			if err != nil {
 				// if a story is malformed continue to process other stories
-				log.Println(err)
+				log.Println(errors.WithStack(err))
 				continue
 			}
 
@@ -244,7 +246,7 @@ func (t *translator) ReadStreamAndTranslate(sd StreamData) {
 
 			if err != nil {
 				// if an error occurred running the script skip to the next story
-				log.Println(err)
+				log.Println(errors.WithStack(err))
 				continue
 			}
 			log.Printf("Translation for message ID %s sent.\n", tMsg.id)
@@ -402,7 +404,7 @@ func translateFields(ctx context.Context, td translationData, resChan chan (tRes
 func translateText(ctx context.Context, tReq tRequest) tResponse {
 	client, err := translate.NewClient(ctx)
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatalln(errors.WithStack(err))
 	}
 	defer client.Close()
 
@@ -417,7 +419,7 @@ func translateText(ctx context.Context, tReq tRequest) tResponse {
 
 	resp, err := client.Translate(ctx, []string{tReq.sourceText}, tReq.destLang, opts)
 	if err != nil {
-		log.Fatalf("Translation service error translating [%s]: %s", tReq.sourceText, err)
+		log.Fatalf("Translation service error translating [%s]: %s", tReq.sourceText, errors.WithStack(err))
 	}
 
 	return tResponse{

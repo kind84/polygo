@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-redis/redis"
+	"github.com/pkg/errors"
 )
 
 type Story struct {
@@ -58,12 +59,14 @@ type Recipe struct {
 		Plugin      string       `json:"plugin"`
 		Ingredients []Ingredient `json:"ingredients"`
 	} `json:"ingredients"`
+	Lang string `json:"-"`
 }
 
 type Ingredient struct {
 	Name     string `json:"name"`
 	Unit     string `json:"unit"`
 	Quantity string `json:"quantity"`
+	Lang     string `json:"-"`
 }
 
 type Step struct {
@@ -72,6 +75,7 @@ type Step struct {
 	Content   string `json:"content"`
 	Component string `json:"component"`
 	Thumbnail string `json:"thumbnail"`
+	Lang      string `json:"-"`
 }
 
 type Reply struct {
@@ -87,6 +91,7 @@ type StreamData struct {
 	Stream   string
 	Group    string
 	Consumer string
+	Code     string
 }
 
 type StoryBlok struct {
@@ -120,6 +125,7 @@ func (s *StoryBlok) NewStories(req *Request, reply *Reply) error {
 	reply.Stories = ss
 
 	// create a pipeline to add messages to the stream in a single transaction
+	// TODO transform in a transaction instead of pipe?
 	pipe := s.rdb.Pipeline()
 	defer pipe.Close()
 
@@ -130,7 +136,7 @@ func (s *StoryBlok) NewStories(req *Request, reply *Reply) error {
 		go func(w *sync.WaitGroup, st Story) {
 			js, err := json.Marshal(st)
 			if err != nil {
-				log.Fatalln(err)
+				log.Fatalln(errors.WithStack(err))
 			}
 
 			msg := map[string]interface{}{"story": js}
@@ -146,7 +152,7 @@ func (s *StoryBlok) NewStories(req *Request, reply *Reply) error {
 			// add message to the pipeline
 			id, err := pipe.XAdd(args).Result()
 			if err != nil {
-				log.Fatalln(err)
+				log.Fatalln(errors.WithStack(err))
 			}
 
 			log.Printf("Sending message ID %s for story ID %d", id, st.ID)
@@ -161,7 +167,7 @@ func (s *StoryBlok) NewStories(req *Request, reply *Reply) error {
 	// commit the transaction to the stream
 	_, err = pipe.Exec()
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatalln(errors.WithStack(err))
 	}
 
 	return nil
@@ -187,8 +193,8 @@ func (s *sbConsumer) ReadTranslation(sd StreamData) {
 			Consumer: sd.Consumer,
 			// List of streams and ids.
 			Streams: []string{sd.Stream, lastID},
-			// Count   int64
-			Block: time.Millisecond * 2000,
+			Count:   10,
+			Block:   time.Millisecond * 2000,
 			// NoAck   bool
 		}
 
@@ -209,11 +215,42 @@ func (s *sbConsumer) ReadTranslation(sd StreamData) {
 			log.Printf("Consumer %s reading message ID %s\n", sd.Consumer, msg.ID)
 			lastID = msg.ID
 
+			// TODO add here a check to ensure translation has been persisted.
+
+			var sty Story
+			jsn := msg.Values["story"].(string)
+			err := json.Unmarshal([]byte(jsn), &sty)
+			if err != nil {
+				log.Println(errors.WithStack(err))
+				continue
+			}
+			sty.Content.Lang = "_i18n_" + sd.Code
+			for i, _ := range sty.Content.Steps {
+				sty.Content.Steps[i].Lang = "_i18n_" + sd.Code
+			}
+			for i, _ := range sty.Content.Ingredients.Ingredients {
+				sty.Content.Ingredients.Ingredients[i].Lang = "_i18n_" + sd.Code
+			}
+
+			jsty, err := json.Marshal(sty)
+			if err != nil {
+				log.Println(errors.WithStack(err))
+				continue
+			}
+
+			var prettyJson bytes.Buffer
+			err = json.Indent(&prettyJson, []byte(jsty), "", "\t")
+			if err != nil {
+				log.Println(errors.WithStack(err))
+				continue
+			}
+			fmt.Println(string(prettyJson.Bytes()))
+
 			ackScript := redis.NewScript(`
 				return redis.call("xack", KEYS[1], ARGV[1], ARGV[2])
 			`)
 
-			_, err := ackScript.Run(
+			_, err = ackScript.Run(
 				s.rdb,
 				[]string{sd.Stream},        // KEYS
 				[]string{sd.Group, msg.ID}, // ARGV
@@ -224,15 +261,6 @@ func (s *sbConsumer) ReadTranslation(sd StreamData) {
 				log.Println(err)
 				continue
 			}
-
-			jsn := msg.Values["story"].(string)
-			var prettyJson bytes.Buffer
-			err = json.Indent(&prettyJson, []byte(jsn), "", "\t")
-			if err != nil {
-				log.Println(err)
-				continue
-			}
-			fmt.Println(string(prettyJson.Bytes()))
 		}
 	}
 }
@@ -272,11 +300,8 @@ func (s *StoryBlok) newSBStories() ([]Story, error) {
 }
 
 // define the naming strategy
-func (Recipe) SetJSONname(jsonTag string) string {
-	if jsonTag == "first" {
-		return "name"
-	}
-	return jsonTag
+func (r Recipe) SetJSONname(jsonTag string) string {
+	return jsonTag + r.Lang
 }
 
 // implement MarshalJSON for type Recipe
@@ -284,6 +309,30 @@ func (r Recipe) MarshalJSON() ([]byte, error) {
 
 	// specify the naming strategy here
 	return marshalJSON("SetJSONname", r)
+}
+
+// define the naming strategy
+func (s Step) SetJSONname(jsonTag string) string {
+	return jsonTag + s.Lang
+}
+
+// implement MarshalJSON for type Step
+func (s Step) MarshalJSON() ([]byte, error) {
+
+	// specify the naming strategy here
+	return marshalJSON("SetJSONname", s)
+}
+
+// define the naming strategy
+func (i Ingredient) SetJSONname(jsonTag string) string {
+	return jsonTag + i.Lang
+}
+
+// implement MarshalJSON for type Ingredient
+func (i Ingredient) MarshalJSON() ([]byte, error) {
+
+	// specify the naming strategy here
+	return marshalJSON("SetJSONname", i)
 }
 
 // implement a general marshaler that takes a naming strategy
@@ -304,12 +353,27 @@ func marshalJSON(namingStrategy string, that interface{}) ([]byte, error) {
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		switch n := f.Tag.Get("json"); n {
+		//set cases
 		case "":
 			outName = f.Name
 		case "-":
 			outName = ""
-		default:
+		case "title":
 			outName = fname(n)
+		case "summary":
+			outName = fname(n)
+		case "description":
+			outName = fname(n)
+		case "conclusion":
+			outName = fname(n)
+		case "name":
+			outName = fname(n)
+		case "unit":
+			outName = fname(n)
+		case "content":
+			outName = fname(n)
+		default:
+			outName = f.Name
 		}
 		if outName != "" {
 			out[outName] = v.Field(i).Interface()

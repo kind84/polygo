@@ -19,3 +19,6 @@
 
 # Google cloud key file
 gcloud-key.json
+
+# Vim files
+*.swp

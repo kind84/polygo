@@ -76,11 +76,13 @@ func main() {
 			Stream:   "translation_en",
 			Group:    "storybloks_en",
 			Consumer: "storybloker_en",
+			Code:     "en",
 		},
 		{
 			Stream:   "translation_fr",
 			Group:    "storybloks_fr",
 			Consumer: "storybloker_fr",
+			Code:     "fr",
 		},
 	}
 

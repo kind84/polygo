@@ -8,4 +8,5 @@ require (
 	github.com/kind84/polygo/translator v0.0.0-20190730120207-5c49805ab6cc // indirect
 	github.com/onsi/ginkgo v1.8.0 // indirect
 	github.com/onsi/gomega v1.5.0 // indirect
+	github.com/pkg/errors v0.8.0
 )
