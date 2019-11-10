@@ -10,10 +10,10 @@ import (
 
 	"cloud.google.com/go/translate"
 	"github.com/go-redis/redis"
+	"github.com/pkg/errors"
 	"golang.org/x/text/language"
 
 	"github.com/kind84/polygo/storyblok/storyblok"
-	"github.com/pkg/errors"
 )
 
 // StreamData groups data to establish a connection to an incoming stream and an outgoing stream
