@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/rpc/jsonrpc"
+	"strings"
 
 	"github.com/go-redis/redis"
 	"github.com/julienschmidt/httprouter"
@@ -34,11 +35,8 @@ func init() {
 	viper.AddConfigPath(".")
 	viper.SetEnvPrefix("polygo")
 	viper.AutomaticEnv()
-
-	err := viper.ReadInConfig()
-	if err != nil {
-		log.Fatalf("Fatal error config file: %s", err)
-	}
+	replacer := strings.NewReplacer(".", "_")
+	viper.SetEnvKeyReplacer(replacer)
 }
 
 func main() {
@@ -49,8 +47,9 @@ func main() {
 	mux.POST("/rpc/stories", rpcStories)
 	mux.POST("/stream/stories", streamStories)
 
-	log.Println("Listenting on port 8080")
-	http.ListenAndServe(":8080", mux)
+	port := viper.GetString("server.port")
+	log.Println("Listenting on port " + port)
+	http.ListenAndServe(":"+port, mux)
 }
 
 func hello(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
@@ -133,7 +132,8 @@ func streamStories(w http.ResponseWriter, req *http.Request, _ httprouter.Params
 }
 
 func rpcStories(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
-	conn, err := net.Dial("tcp", "localhost:8070")
+	sb := viper.GetString("storyblok")
+	conn, err := net.Dial("tcp", sb)
 	if err != nil {
 		log.Fatalln(err)
 	}

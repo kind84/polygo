@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"github.com/go-redis/redis"
@@ -64,11 +65,8 @@ func init() {
 	viper.AddConfigPath(".")
 	viper.SetEnvPrefix("polygo")
 	viper.AutomaticEnv()
-
-	err := viper.ReadInConfig()
-	if err != nil {
-		log.Fatalf("Fatal error config file: %s", err)
-	}
+	replacer := strings.NewReplacer(".", "_")
+	viper.SetEnvKeyReplacer(replacer)
 }
 
 func main() {

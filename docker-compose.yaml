@@ -1,0 +1,40 @@
+version: "3.7"
+services:
+        server:
+                build:
+                        context: ./server
+                        dockerfile: Dockerfile
+                depends_on: 
+                        - redis
+                ports:
+                        - "8080:8080"
+                environment:
+                        POLYGO_REDIS_HOST: redis:6379 
+                        POLYGO_STORYBLOK: storyblok:8070
+        storyblok:
+                build:
+                        context: ./storyblok
+                        dockerfile: Dockerfile
+                depends_on:
+                        - redis
+                ports:
+                        - "8070:8070"
+                env_file: ./storyblok/.env
+                environment:
+                        POLYGO_REDIS_HOST: redis:6379
+        translator:
+                build:
+                        context: ./translator
+                        dockerfile: Dockerfile
+                depends_on:
+                        - redis
+                ports:
+                        - "8090:8090"
+                environment:
+                        POLYGO_REDIS_HOST: redis:6379
+                volumes:
+                        - ./translator/gcloud-key.json:/gcloud-key.json
+        redis:
+                image: redis
+                ports:
+                        - "6379:6379"
