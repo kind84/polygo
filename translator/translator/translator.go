@@ -13,7 +13,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/text/language"
 
-	"github.com/kind84/polygo/storyblok/storyblok"
+	"github.com/kind84/polygo/pkg/types"
 )
 
 // StreamData groups data to establish a connection to an incoming stream and an outgoing stream
@@ -45,7 +45,7 @@ type tResponse struct {
 // The translation message buid starting from the stream message.
 type tMessage struct {
 	id          string
-	story       storyblok.Story
+	story       types.Story
 	translation chan tChannel
 	sourceLang  language.Tag
 	destLang    language.Tag
@@ -54,7 +54,7 @@ type tMessage struct {
 // The channel to send over translations.
 type tChannel struct {
 	id    string
-	story storyblok.Story
+	story types.Story
 }
 
 type element struct {
@@ -78,12 +78,12 @@ type translationData struct {
 }
 
 type Reply struct {
-	ID          interface{}     `json:"id"`
-	Translation storyblok.Story `json:"translation"`
+	ID          interface{} `json:"id"`
+	Translation types.Story `json:"translation"`
 }
 
 type Request struct {
-	Story storyblok.Story
+	Story types.Story
 }
 
 type RPCTranslator struct{}
@@ -195,7 +195,7 @@ func (t *translator) ReadStreamAndTranslate(sd StreamData) {
 			// lastID = msg.ID
 
 			log.Printf("Consumer %s reading message ID %s\n", sd.Consumer, msg.ID)
-			var story storyblok.Story
+			var story types.Story
 
 			storyStr, ok := msg.Values["story"].(string)
 			if !ok {

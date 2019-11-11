@@ -12,6 +12,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 
+	"github.com/kind84/polygo/pkg/types"
 	"github.com/kind84/polygo/storyblok/storyblok"
 )
 
@@ -152,7 +153,7 @@ func rpcStories(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
 	}
 
 	resp := struct {
-		Stories []storyblok.Story `json:"stories"`
+		Stories []types.Story `json:"stories"`
 	}{Stories: reply.Stories}
 
 	json.NewEncoder(w).Encode(resp)
