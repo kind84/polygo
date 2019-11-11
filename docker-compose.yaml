@@ -9,8 +9,9 @@ services:
                 ports:
                         - "8080:8080"
                 environment:
+                        POLYGO_SERVER_PORT: 8080
                         POLYGO_REDIS_HOST: redis:6379 
-                        POLYGO_STORYBLOK: storyblok:8070
+                        POLYGO_STORYBLOK_HOST: storyblok:8070
         storyblok:
                 build:
                         context: ./storyblok

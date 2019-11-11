@@ -67,6 +67,7 @@ func init() {
 	viper.AutomaticEnv()
 	replacer := strings.NewReplacer(".", "_")
 	viper.SetEnvKeyReplacer(replacer)
+	viper.ReadInConfig()
 }
 
 func main() {

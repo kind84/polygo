@@ -37,6 +37,7 @@ func init() {
 	viper.AutomaticEnv()
 	replacer := strings.NewReplacer(".", "_")
 	viper.SetEnvKeyReplacer(replacer)
+	viper.ReadInConfig()
 }
 
 func main() {
@@ -132,7 +133,7 @@ func streamStories(w http.ResponseWriter, req *http.Request, _ httprouter.Params
 }
 
 func rpcStories(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
-	sb := viper.GetString("storyblok")
+	sb := viper.GetString("storyblok.host")
 	conn, err := net.Dial("tcp", sb)
 	if err != nil {
 		log.Fatalln(err)
