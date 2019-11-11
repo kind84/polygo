@@ -15,15 +15,6 @@ import (
 	"github.com/kind84/polygo/pkg/types"
 )
 
-type Reply struct {
-	ID      interface{}   `json:"id"`
-	Stories []types.Story `json:"stories"`
-}
-
-type Request struct {
-	Message string `json:"message"`
-}
-
 type StreamData struct {
 	Stream   string
 	Group    string
@@ -53,7 +44,7 @@ func NewSBConsumer(r *redis.Client) SBConsumer {
 	}
 }
 
-func (s *StoryBlok) NewStories(req *Request, reply *Reply) error {
+func (s *StoryBlok) NewStories(req *types.Request, reply *types.Reply) error {
 	// get new stories from Storyblok api
 	ss, err := s.newSBStories()
 	if err != nil {

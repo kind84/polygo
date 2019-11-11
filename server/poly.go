@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/kind84/polygo/pkg/types"
-	"github.com/kind84/polygo/storyblok/storyblok"
 )
 
 // --- Storyblok payload
@@ -140,8 +139,8 @@ func rpcStories(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
 	}
 	defer conn.Close()
 
-	request := storyblok.Request{}
-	reply := storyblok.Reply{
+	request := types.Request{}
+	reply := types.Reply{
 		ID: "pippo",
 	}
 
