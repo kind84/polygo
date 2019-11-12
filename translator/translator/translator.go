@@ -148,7 +148,7 @@ func (t *RPCTranslator) Translate(req *Request, reply *Reply) error {
 // ReadStreamAndTranslate reads from the incoming stream and sends back the translation through the recipient stream
 func (t *translator) ReadStreamAndTranslate(sd StreamData) {
 	// create consumer group if not done yet
-	t.rdb.XGroupCreate(sd.StreamFrom, sd.Group, "$").Result()
+	t.rdb.XGroupCreateMkStream(sd.StreamFrom, sd.Group, "$").Result()
 
 	log.Printf("Consumer group %s created\n", sd.Group)
 

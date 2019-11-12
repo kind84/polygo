@@ -103,7 +103,7 @@ func (s *StoryBlok) NewStories(req *types.Request, reply *types.Reply) error {
 
 func (s *sbConsumer) ReadTranslation(sd StreamData) {
 	// create consumer group if not done yet
-	s.rdb.XGroupCreate(sd.Stream, sd.Group, "$")
+	s.rdb.XGroupCreateMkStream(sd.Stream, sd.Group, "$")
 
 	fmt.Printf("Consumer group %s created\n", sd.Group)
 
