@@ -200,6 +200,7 @@ func (t *translator) ReadStreamAndTranslate(sd StreamData) {
 			storyStr, ok := msg.Values["story"].(string)
 			if !ok {
 				log.Printf("Error parsing message ID %v into string.", msg.ID)
+				continue
 			}
 
 			err := json.Unmarshal([]byte(storyStr), &story)
