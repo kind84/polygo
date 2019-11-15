@@ -28,7 +28,8 @@ type StoryBlok struct {
 }
 
 type sbConsumer struct {
-	rdb *redis.Client
+	shutdownCh chan struct{}
+	rdb        *redis.Client
 }
 
 func NewSBClient(token string, r *redis.Client) *StoryBlok {
@@ -40,8 +41,23 @@ func NewSBClient(token string, r *redis.Client) *StoryBlok {
 
 func NewSBConsumer(r *redis.Client) SBConsumer {
 	return &sbConsumer{
-		rdb: r,
+		shutdownCh: make(chan struct{}),
+		rdb:        r,
 	}
+}
+
+// CloseGracefully sends the shutdown signal to start closing all translator processes
+func (s *sbConsumer) CloseGracefully() {
+	close(s.shutdownCh)
+}
+
+func (s *sbConsumer) shouldExit() bool {
+	select {
+	case _, ok := <-s.shutdownCh:
+		return !ok
+	default:
+	}
+	return false
 }
 
 func (s *StoryBlok) NewStories(req *types.Request, reply *types.Reply) error {
@@ -128,7 +144,10 @@ func (s *sbConsumer) ReadTranslation(sd StreamData) {
 
 		items := s.rdb.XReadGroup(&args)
 		if items == nil {
-			// Timeout
+			// Timeout, check if it's time to exit
+			if s.shouldExit() {
+				return
+			}
 			continue
 		}
 

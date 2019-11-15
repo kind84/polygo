@@ -42,7 +42,7 @@ type tResponse struct {
 	translation string
 }
 
-// The translation message buid starting from the stream message.
+// The translation message build starting from the stream message.
 type tMessage struct {
 	id          string
 	story       types.Story

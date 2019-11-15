@@ -97,6 +97,7 @@ func main() {
 	// wait for shutdown
 	if <-shutdownCh != nil {
 		fmt.Println("\nShutdown signal detected, gracefully shutting down...")
+		s.CloseGracefully()
 	}
 	fmt.Println("bye")
 }
