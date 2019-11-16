@@ -1,6 +1,10 @@
 package storyblok
 
+import (
+	"context"
+)
+
 type SBConsumer interface {
-	ReadTranslation(sd StreamData)
+	ReadTranslation(context.Context, StreamData)
 	CloseGracefully()
 }

@@ -2,6 +2,7 @@ package storyblok
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -117,7 +118,7 @@ func (s *StoryBlok) NewStories(req *types.Request, reply *types.Reply) error {
 	return nil
 }
 
-func (s *sbConsumer) ReadTranslation(sd StreamData) {
+func (s *sbConsumer) ReadTranslation(ctx context.Context, sd StreamData) {
 	// create consumer group if not done yet
 	s.rdb.XGroupCreateMkStream(sd.Stream, sd.Group, "$")
 
@@ -128,6 +129,9 @@ func (s *sbConsumer) ReadTranslation(sd StreamData) {
 
 	// listen for translations coming from the stream
 	for {
+		// TODO: use context once storing translation to storyblok is implemented.
+		_, cancel := context.WithCancel(ctx)
+
 		if !checkHistory {
 			lastID = ">"
 		}
@@ -146,6 +150,7 @@ func (s *sbConsumer) ReadTranslation(sd StreamData) {
 		if items == nil {
 			// Timeout, check if it's time to exit
 			if s.shouldExit() {
+				cancel()
 				return
 			}
 			continue

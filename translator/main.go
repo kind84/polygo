@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -83,6 +84,8 @@ func main() {
 		signal.Notify(shutdownCh, syscall.SIGINT, syscall.SIGTERM)
 	}
 
+	ctx := context.Background()
+
 	rpcT := new(translator.RPCTranslator)
 
 	// start jsonrpc server
@@ -99,7 +102,7 @@ func main() {
 	// start reading streams
 	for _, s := range streams {
 		fmt.Printf("Start reading stream %s\n", s.StreamFrom)
-		go t.ReadStreamAndTranslate(s)
+		go t.ReadStreamAndTranslate(ctx, s)
 	}
 
 	// wait for shutdown

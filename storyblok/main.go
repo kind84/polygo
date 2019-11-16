@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -67,6 +68,8 @@ func main() {
 		signal.Notify(shutdownCh, syscall.SIGINT, syscall.SIGTERM)
 	}
 
+	ctx := context.Background()
+
 	log.Println("Jsonrpc server listening on port 8070")
 	go startServer()
 
@@ -91,7 +94,7 @@ func main() {
 	s := storyblok.NewSBConsumer(rdb)
 
 	for _, stream := range streams {
-		go s.ReadTranslation(stream)
+		go s.ReadTranslation(ctx, stream)
 	}
 
 	// wait for shutdown

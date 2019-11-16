@@ -1,6 +1,10 @@
 package translator
 
+import (
+	"context"
+)
+
 type Translator interface {
-	ReadStreamAndTranslate(streamData StreamData)
+	ReadStreamAndTranslate(context.Context, StreamData)
 	CloseGracefully()
 }

@@ -146,7 +146,7 @@ func (t *RPCTranslator) Translate(req *Request, reply *Reply) error {
 }
 
 // ReadStreamAndTranslate reads from the incoming stream and sends back the translation through the recipient stream
-func (t *translator) ReadStreamAndTranslate(sd StreamData) {
+func (t *translator) ReadStreamAndTranslate(ctx context.Context, sd StreamData) {
 	// create consumer group if not done yet
 	t.rdb.XGroupCreateMkStream(sd.StreamFrom, sd.Group, "$").Result()
 
@@ -156,6 +156,8 @@ func (t *translator) ReadStreamAndTranslate(sd StreamData) {
 	checkHistory := true
 
 	for {
+		ctx, cancel := context.WithCancel(ctx)
+
 		if !checkHistory {
 			lastID = ">"
 		}
@@ -175,6 +177,7 @@ func (t *translator) ReadStreamAndTranslate(sd StreamData) {
 		if items == nil {
 			// Timeout, check if it's time to exit
 			if t.shouldExit() {
+				cancel()
 				return
 			}
 			continue
@@ -210,7 +213,6 @@ func (t *translator) ReadStreamAndTranslate(sd StreamData) {
 				continue
 			}
 
-			ctx := context.Background()
 			m := tMessage{
 				id:          msg.ID,
 				story:       story,
