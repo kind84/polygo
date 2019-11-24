@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/go-redis/redis"
-	"github.com/pkg/errors"
 
 	"github.com/kind84/polygo/pkg/types"
 )
@@ -25,22 +24,27 @@ type StreamData struct {
 
 type StoryBlok struct {
 	token string
+	oauth string
+	space string
 	rdb   *redis.Client
 }
 
 type sbConsumer struct {
+	StoryBlok
 	shutdownCh chan struct{}
 	rdb        *redis.Client
 }
 
-func NewSBClient(token string, r *redis.Client) *StoryBlok {
+func NewSBClient(token string, oauth string, space string, r *redis.Client) *StoryBlok {
 	return &StoryBlok{
 		token: token,
+		oauth: oauth,
+		space: space,
 		rdb:   r,
 	}
 }
 
-func NewSBConsumer(r *redis.Client) SBConsumer {
+func NewSBConsumer(r *redis.Client) *sbConsumer {
 	return &sbConsumer{
 		shutdownCh: make(chan struct{}),
 		rdb:        r,
@@ -81,7 +85,7 @@ func (s *StoryBlok) NewStories(req *types.Request, reply *types.Reply) error {
 		go func(w *sync.WaitGroup, st types.Story) {
 			js, err := json.Marshal(st)
 			if err != nil {
-				log.Fatalln(errors.WithStack(err))
+				log.Fatalln(err)
 			}
 
 			msg := map[string]interface{}{"story": js}
@@ -97,7 +101,7 @@ func (s *StoryBlok) NewStories(req *types.Request, reply *types.Reply) error {
 			// add message to the pipeline
 			id, err := pipe.XAdd(args).Result()
 			if err != nil {
-				log.Fatalln(errors.WithStack(err))
+				log.Fatalln(err)
 			}
 
 			log.Printf("Sending message ID %s for story ID %d", id, st.ID)
@@ -112,7 +116,7 @@ func (s *StoryBlok) NewStories(req *types.Request, reply *types.Reply) error {
 	// commit the transaction to the stream
 	_, err = pipe.Exec()
 	if err != nil {
-		log.Fatalln(errors.WithStack(err))
+		log.Fatalln(err)
 	}
 
 	return nil
@@ -173,12 +177,12 @@ func (s *sbConsumer) ReadTranslation(ctx context.Context, sd StreamData) {
 			jsn := msg.Values["story"].(string)
 			err := json.Unmarshal([]byte(jsn), &sty)
 			if err != nil {
-				log.Println(errors.WithStack(err))
+				log.Println(err)
 				continue
 			}
 			sty.Content.Lang = "_i18n_" + sd.Code
 			for i, _ := range sty.Content.Steps {
-				sty.Content.Steps[i].Lang = "_i18n_" + sd.Code
+				sty.Content.Steps[i].Lang = "__i18n__" + sd.Code
 			}
 			for i, _ := range sty.Content.Ingredients.Ingredients {
 				sty.Content.Ingredients.Ingredients[i].Lang = "_i18n_" + sd.Code
@@ -186,14 +190,14 @@ func (s *sbConsumer) ReadTranslation(ctx context.Context, sd StreamData) {
 
 			jsty, err := json.Marshal(sty)
 			if err != nil {
-				log.Println(errors.WithStack(err))
+				log.Println(err)
 				continue
 			}
 
 			var prettyJson bytes.Buffer
 			err = json.Indent(&prettyJson, []byte(jsty), "", "\t")
 			if err != nil {
-				log.Println(errors.WithStack(err))
+				log.Println(err)
 				continue
 			}
 			fmt.Println(string(prettyJson.Bytes()))
@@ -249,4 +253,32 @@ func (s *StoryBlok) newSBStories() ([]types.Story, error) {
 		return nil, err
 	}
 	return ss.Stories, nil
+}
+
+func (s *StoryBlok) saveStory(story types.Story) error {
+	body := struct {
+		Story   types.Story `json:"story"`
+		publish int
+	}{
+		Story:   story,
+		publish: 1,
+	}
+
+	jbody, err := json.Marshal(body)
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("https://mapi.storyblok.com/v1/spaces/%s/stories", s.space), bytes.NewBuffer(jbody))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Add("Content-Type", "applcation/json")
+	req.Header.Add("Authorization", s.oauth)
+
+	client := &http.Client{}
+
+	_, err = client.Do(req)
+	if err != nil {
+		return err
+	}
+	return nil
 }

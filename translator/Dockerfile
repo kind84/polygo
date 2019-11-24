@@ -5,7 +5,7 @@ WORKDIR /polygo/translator
 COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-go build -o /go/bin/translator /polygo/translator
+go build -o /go/bin/translator /polygo/translator/cmd/translator
 
 ENTRYPOINT ["/go/bin/translator"]
 

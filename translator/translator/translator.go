@@ -10,7 +10,6 @@ import (
 
 	"cloud.google.com/go/translate"
 	"github.com/go-redis/redis"
-	"github.com/pkg/errors"
 	"golang.org/x/text/language"
 
 	"github.com/kind84/polygo/pkg/types"
@@ -104,7 +103,7 @@ var units map[string]struct{} = map[string]struct{}{
 }
 
 // NewTranslator initialize a new Translator and returns it
-func NewTranslator(rdb *redis.Client) Translator {
+func NewTranslator(rdb *redis.Client) *translator {
 	return &translator{
 		shutdownCh: make(chan struct{}),
 		rdb:        rdb,
@@ -209,7 +208,7 @@ func (t *translator) ReadStreamAndTranslate(ctx context.Context, sd StreamData) 
 			err := json.Unmarshal([]byte(storyStr), &story)
 			if err != nil {
 				// if a message is malformed continue to process other messages
-				log.Println(errors.WithStack(err))
+				log.Println(err)
 				continue
 			}
 
@@ -230,7 +229,7 @@ func (t *translator) ReadStreamAndTranslate(ctx context.Context, sd StreamData) 
 			js, err := json.Marshal(tMsg.story)
 			if err != nil {
 				// if a story is malformed continue to process other stories
-				log.Println(errors.WithStack(err))
+				log.Println(err)
 				continue
 			}
 
@@ -249,7 +248,7 @@ func (t *translator) ReadStreamAndTranslate(ctx context.Context, sd StreamData) 
 
 			if err != nil {
 				// if an error occurred running the script skip to the next story
-				log.Println(errors.WithStack(err))
+				log.Println(err)
 				continue
 			}
 			log.Printf("Translation for message ID %s sent.\n", tMsg.id)
@@ -407,14 +406,9 @@ func translateFields(ctx context.Context, td translationData, resChan chan (tRes
 func translateText(ctx context.Context, tReq tRequest) tResponse {
 	client, err := translate.NewClient(ctx)
 	if err != nil {
-		log.Fatalln(errors.WithStack(err))
+		log.Fatalln(err)
 	}
 	defer client.Close()
-
-	// lang, err := language.Parse(targetLang)
-	// if err != nil {
-	// 	return tResp, err
-	// }
 
 	opts := &translate.Options{
 		Source: tReq.sourceLang,
@@ -422,7 +416,7 @@ func translateText(ctx context.Context, tReq tRequest) tResponse {
 
 	resp, err := client.Translate(ctx, []string{tReq.sourceText}, tReq.destLang, opts)
 	if err != nil {
-		log.Fatalf("Translation service error translating [%s]: %s", tReq.sourceText, errors.WithStack(err))
+		log.Fatalf("Translation service error translating [%s]: %s", tReq.sourceText, err)
 	}
 
 	return tResponse{

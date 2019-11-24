@@ -15,37 +15,21 @@ import (
 
 	"github.com/go-redis/redis"
 	"github.com/spf13/viper"
-	"golang.org/x/text/language"
 
-	"github.com/kind84/polygo/translator/translator"
+	"github.com/kind84/polygo/storyblok/storyblok"
 )
 
-// setting stream data for each stream to be listening on
-var streams = []translator.StreamData{
-	translator.StreamData{
-		StreamFrom: "storyblok",
-		Group:      "translate_it-en",
-		Consumer:   "translator_it-en",
-		StreamTo:   "translation_en",
-		LangFrom:   language.Italian,
-		LangTo:     language.English,
-	},
-	translator.StreamData{
-		StreamFrom: "translation_en",
-		Group:      "translate_en-fr",
-		Consumer:   "translator_en-fr",
-		StreamTo:   "translation_fr",
-		LangFrom:   language.English,
-		LangTo:     language.French,
-	},
-}
+func startServer(rdb *redis.Client) {
+	token := viper.GetString("storyblok.token")
+	oauth := viper.GetString("storyblok.oauth")
+	space := viper.GetString("storyblok.space")
 
-// start rpc server
-func startServer(t *translator.RPCTranslator) {
+	s := storyblok.NewSBClient(token, oauth, space, rdb)
+
 	server := rpc.NewServer()
-	server.Register(t)
+	server.Register(s)
 
-	l, err := net.Listen("tcp", ":8090")
+	l, err := net.Listen("tcp", ":8070")
 	if err != nil {
 		log.Fatalln("listen error:", err)
 	}
@@ -61,7 +45,7 @@ func startServer(t *translator.RPCTranslator) {
 }
 
 func init() {
-	fmt.Println("Setting up configuration...")
+	log.Println("Setting up configuration...")
 	viper.SetConfigName("config")
 	viper.AddConfigPath(".")
 	viper.SetEnvPrefix("polygo")
@@ -86,29 +70,37 @@ func main() {
 
 	ctx := context.Background()
 
-	rpcT := new(translator.RPCTranslator)
-
-	// start jsonrpc server
-	fmt.Println("Jsonrpc sever listening on port 8090")
-	go startServer(rpcT)
-
-	// setting up redis client
 	rh := viper.GetString("redis.host")
 	rdb := redis.NewClient(&redis.Options{Addr: rh})
-	defer rdb.Close()
 
-	t := translator.NewTranslator(rdb)
+	log.Println("Jsonrpc server listening on port 8070")
+	go startServer(rdb)
 
-	// start reading streams
-	for _, s := range streams {
-		fmt.Printf("Start reading stream %s\n", s.StreamFrom)
-		go t.ReadStreamAndTranslate(ctx, s)
+	streams := []storyblok.StreamData{
+		{
+			Stream:   "translation_en",
+			Group:    "storybloks_en",
+			Consumer: "storybloker_en",
+			Code:     "en",
+		},
+		{
+			Stream:   "translation_fr",
+			Group:    "storybloks_fr",
+			Consumer: "storybloker_fr",
+			Code:     "fr",
+		},
+	}
+
+	s := storyblok.NewSBConsumer(rdb)
+
+	for _, stream := range streams {
+		go s.ReadTranslation(ctx, stream)
 	}
 
 	// wait for shutdown
 	if <-shutdownCh != nil {
 		fmt.Println("\nShutdown signal detected, gracefully shutting down...")
-		t.CloseGracefully()
+		s.CloseGracefully()
 	}
 	fmt.Println("bye")
 }
