@@ -19,13 +19,7 @@ import (
 	"github.com/kind84/polygo/storyblok/storyblok"
 )
 
-func startServer(rdb *redis.Client) {
-	token := viper.GetString("storyblok.token")
-	oauth := viper.GetString("storyblok.oauth")
-	space := viper.GetString("storyblok.space")
-
-	s := storyblok.NewSBClient(token, oauth, space, rdb)
-
+func startServer(rdb *redis.Client, s *storyblok.StoryBlok) {
 	server := rpc.NewServer()
 	server.Register(s)
 
@@ -34,6 +28,7 @@ func startServer(rdb *redis.Client) {
 		log.Fatalln("listen error:", err)
 	}
 
+	log.Println("Jsonrpc server listening on port 8070")
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -73,8 +68,13 @@ func main() {
 	rh := viper.GetString("redis.host")
 	rdb := redis.NewClient(&redis.Options{Addr: rh})
 
-	log.Println("Jsonrpc server listening on port 8070")
-	go startServer(rdb)
+	token := viper.GetString("storyblok.token")
+	oauth := viper.GetString("storyblok.oauth")
+	space := viper.GetString("storyblok.space")
+
+	s := storyblok.NewSBClient(token, oauth, space, rdb)
+
+	go startServer(rdb, s)
 
 	streams := []storyblok.StreamData{
 		{
@@ -91,16 +91,16 @@ func main() {
 		},
 	}
 
-	s := storyblok.NewSBConsumer(rdb)
+	sc := storyblok.NewSBConsumer(s)
 
 	for _, stream := range streams {
-		go s.ReadTranslation(ctx, stream)
+		go sc.ReadTranslation(ctx, stream)
 	}
 
 	// wait for shutdown
 	if <-shutdownCh != nil {
 		fmt.Println("\nShutdown signal detected, gracefully shutting down...")
-		s.CloseGracefully()
+		sc.CloseGracefully()
 	}
 	fmt.Println("bye")
 }

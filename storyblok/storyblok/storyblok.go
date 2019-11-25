@@ -30,9 +30,8 @@ type StoryBlok struct {
 }
 
 type sbConsumer struct {
-	StoryBlok
+	*StoryBlok
 	shutdownCh chan struct{}
-	rdb        *redis.Client
 }
 
 func NewSBClient(token string, oauth string, space string, r *redis.Client) *StoryBlok {
@@ -44,10 +43,10 @@ func NewSBClient(token string, oauth string, space string, r *redis.Client) *Sto
 	}
 }
 
-func NewSBConsumer(r *redis.Client) *sbConsumer {
+func NewSBConsumer(s *StoryBlok) *sbConsumer {
 	return &sbConsumer{
+		StoryBlok:  s,
 		shutdownCh: make(chan struct{}),
-		rdb:        r,
 	}
 }
 
@@ -67,7 +66,7 @@ func (s *sbConsumer) shouldExit() bool {
 
 func (s *StoryBlok) NewStories(req *types.Request, reply *types.Reply) error {
 	// get new stories from Storyblok api
-	ss, err := s.newSBStories()
+	ss, err := s.newStories()
 	if err != nil {
 		return err
 	}
@@ -171,36 +170,34 @@ func (s *sbConsumer) ReadTranslation(ctx context.Context, sd StreamData) {
 			log.Printf("Consumer %s reading message ID %s\n", sd.Consumer, msg.ID)
 			lastID = msg.ID
 
-			// TODO add here a check to ensure translation has been persisted.
-
-			var sty types.Story
+			var story types.Story
 			jsn := msg.Values["story"].(string)
-			err := json.Unmarshal([]byte(jsn), &sty)
-			if err != nil {
-				log.Println(err)
-				continue
-			}
-			sty.Content.Lang = "_i18n_" + sd.Code
-			for i, _ := range sty.Content.Steps {
-				sty.Content.Steps[i].Lang = "__i18n__" + sd.Code
-			}
-			for i, _ := range sty.Content.Ingredients.Ingredients {
-				sty.Content.Ingredients.Ingredients[i].Lang = "_i18n_" + sd.Code
-			}
-
-			jsty, err := json.Marshal(sty)
+			err := json.Unmarshal([]byte(jsn), &story)
 			if err != nil {
 				log.Println(err)
 				continue
 			}
 
-			var prettyJson bytes.Buffer
-			err = json.Indent(&prettyJson, []byte(jsty), "", "\t")
+			// ensure that translation has not been persisted yet.
+			saved, err := s.checkTranslation(&story, sd.Code)
 			if err != nil {
 				log.Println(err)
 				continue
 			}
-			fmt.Println(string(prettyJson.Bytes()))
+
+			if !saved {
+				log.Println("saving translation")
+				err = s.prepareStory(&story, sd.Code)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				err = s.saveStory(&story)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+			}
 
 			ackScript := redis.NewScript(`
 				return redis.call("xack", KEYS[1], ARGV[1], ARGV[2])
@@ -221,7 +218,7 @@ func (s *sbConsumer) ReadTranslation(ctx context.Context, sd StreamData) {
 	}
 }
 
-func (s *StoryBlok) newSBStories() ([]types.Story, error) {
+func (s *StoryBlok) newStories() ([]types.Story, error) {
 	req, err := http.NewRequest("GET", "https://api.storyblok.com/v1/cdn/stories", nil)
 	if err != nil {
 		return nil, err
@@ -229,7 +226,7 @@ func (s *StoryBlok) newSBStories() ([]types.Story, error) {
 
 	q := req.URL.Query()
 	q.Add("starts_with", "recipes")
-	q.Add("filter_query[translated][in]", "true")
+	q.Add("filter_query[translated][in]", "false")
 	q.Add("token", s.token)
 	req.URL.RawQuery = q.Encode()
 
@@ -255,12 +252,82 @@ func (s *StoryBlok) newSBStories() ([]types.Story, error) {
 	return ss.Stories, nil
 }
 
-func (s *StoryBlok) saveStory(story types.Story) error {
+func (s *StoryBlok) checkTranslation(story *types.Story, code string) (bool, error) {
+	req, err := http.NewRequest("GET", fmt.Sprintf("https://api.storyblok.com/v1/cdn/stories/%d", story.ID), nil)
+	if err != nil {
+		return false, err
+	}
+
+	q := req.URL.Query()
+	q.Add("token", s.token)
+	req.URL.RawQuery = q.Encode()
+
+	req.Header.Add("Content-Type", "applcation/json")
+	req.Header.Add("Accept", "applcation/json")
+
+	client := &http.Client{}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer res.Body.Close()
+
+	ss := struct {
+		Story types.Story `json:"story"`
+	}{}
+
+	err = json.NewDecoder(res.Body).Decode(&ss)
+	if err != nil {
+		return false, err
+	}
+
+	for _, lang := range ss.Story.Content.Translations {
+		if lang == code {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (s *StoryBlok) prepareStory(story *types.Story, code string) error {
+	lang := "__i18n__" + code
+	story.Content.Lang = lang
+	for i, _ := range story.Content.Steps {
+		story.Content.Steps[i].Lang = lang
+	}
+	for i, _ := range story.Content.Ingredients.Ingredients {
+		story.Content.Ingredients.Ingredients[i].Lang = lang
+	}
+	story.Content.Translations = append(story.Content.Translations, code)
+
+	// TODO: improve this check: Translations must contain all translated language codes.
+	if len(story.Content.Translations) == 2 {
+		log.Println("All translations done.")
+		story.Content.Translated = true
+	}
+
+	jsty, err := json.Marshal(story)
+	if err != nil {
+		return err
+	}
+
+	var prettyJson bytes.Buffer
+	err = json.Indent(&prettyJson, []byte(jsty), "", "\t")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(prettyJson.Bytes()))
+
+	return nil
+}
+
+func (s *StoryBlok) saveStory(story *types.Story) error {
 	body := struct {
 		Story   types.Story `json:"story"`
 		publish int
 	}{
-		Story:   story,
+		Story:   *story,
 		publish: 1,
 	}
 
@@ -276,9 +343,10 @@ func (s *StoryBlok) saveStory(story types.Story) error {
 
 	client := &http.Client{}
 
-	_, err = client.Do(req)
+	res, err := client.Do(req)
 	if err != nil {
 		return err
 	}
+	fmt.Println(res)
 	return nil
 }

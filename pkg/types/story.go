@@ -30,23 +30,24 @@ type Story struct {
 }
 
 type Recipe struct {
-	UID         string      `json:"_uid"`
-	Cost        string      `json:"cost"`
-	Prep        string      `json:"prep"`
-	Extra       string      `json:"extra"`
-	Image       string      `json:"image"`
-	Likes       interface{} `json:"likes"`
-	Steps       []Step      `json:"steps"`
-	Title       string      `json:"title"`
-	Cooking     string      `json:"cooking"`
-	Summary     string      `json:"summary"`
-	Servings    string      `json:"servings"`
-	Component   string      `json:"component"`
-	Conclusion  string      `json:"conclusion"`
-	Difficulty  string      `json:"difficulty"`
-	Description string      `json:"description"`
-	Translated  bool        `json:"translated"`
-	Ingredients struct {
+	UID          string      `json:"_uid"`
+	Cost         string      `json:"cost"`
+	Prep         string      `json:"prep"`
+	Extra        string      `json:"extra"`
+	Image        string      `json:"image"`
+	Likes        interface{} `json:"likes"`
+	Steps        []Step      `json:"steps"`
+	Title        string      `json:"title"`
+	Cooking      string      `json:"cooking"`
+	Summary      string      `json:"summary"`
+	Servings     string      `json:"servings"`
+	Component    string      `json:"component"`
+	Conclusion   string      `json:"conclusion"`
+	Difficulty   string      `json:"difficulty"`
+	Description  string      `json:"description"`
+	Translated   bool        `json:"translated"`
+	Translations []string    `json:"translations"`
+	Ingredients  struct {
 		UID         string       `json:"_uid"`
 		Plugin      string       `json:"plugin"`
 		Ingredients []Ingredient `json:"ingredients"`
