@@ -93,9 +93,7 @@ func main() {
 
 	sc := storyblok.NewSBConsumer(s)
 
-	for _, stream := range streams {
-		go sc.ReadTranslation(ctx, stream)
-	}
+	go sc.ReadTranslation(ctx, streams)
 
 	// wait for shutdown
 	if <-shutdownCh != nil {

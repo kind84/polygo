@@ -145,7 +145,7 @@ func marshalJSON(namingStrategy string, that interface{}) ([]byte, error) {
 		case "content":
 			outName = fname(n)
 		default:
-			outName = f.Name
+			outName = n
 		}
 		if outName != "" {
 			out[outName] = v.Field(i).Interface()
