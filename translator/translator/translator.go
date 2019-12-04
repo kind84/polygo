@@ -194,7 +194,7 @@ func (t *translator) ReadStreamAndTranslate(ctx context.Context, sd StreamData) 
 		sbStream := items.Val()[0]
 		log.Printf("Consumer %s received %d messages\n", sd.Consumer, len(sbStream.Messages))
 		for _, msg := range sbStream.Messages {
-			// lastID = msg.ID
+			lastID = msg.ID
 
 			log.Printf("Consumer %s reading message ID %s\n", sd.Consumer, msg.ID)
 			var story types.Story
